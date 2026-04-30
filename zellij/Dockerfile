@@ -17,7 +17,7 @@ ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl bash sudo procps xz-utils iproute2 \
+        ca-certificates curl bash sudo procps xz-utils iproute2 socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Zellij from official binary release, optionally verifying the SHA256.
