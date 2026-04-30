@@ -18,4 +18,7 @@ echo "Open a shell into this container and run:"
 echo "  zellij web --create-token"
 echo ""
 
-exec zellij web --ip 0.0.0.0 --port 8082
+# --unsafe-listen-on-all-interfaces: required since zellij ≥0.42 to listen on
+# 0.0.0.0 without serving TLS itself. Safe here because Caddy terminates TLS
+# upstream and Authelia + Zellij token gate every request before it reaches us.
+exec zellij web --ip 0.0.0.0 --port 8082 --unsafe-listen-on-all-interfaces

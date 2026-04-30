@@ -287,9 +287,10 @@ step "Waiting for services to become healthy"
 deadline=$((SECONDS + 300))
 all_ok=false
 while (( SECONDS < deadline )); do
-    unhealthy=$(docker compose ps --format '{{.Name}} {{.Status}}' \
-        | grep -Ev 'healthy|running' || true)
-    if [[ -z "$unhealthy" ]]; then
+    # State is "running"/"exited"/etc; Status contains "(healthy)", "(unhealthy)", "(health: starting)" or nothing.
+    bad=$(docker compose ps --format '{{.Name}}|{{.State}}|{{.Status}}' \
+        | awk -F'|' '$2 != "running" || $3 ~ /unhealthy|health: starting/' || true)
+    if [[ -z "$bad" ]]; then
         all_ok=true; break
     fi
     sleep 5
