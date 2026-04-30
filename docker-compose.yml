@@ -133,7 +133,7 @@ services:
   # Replaces direct mount of /var/run/docker.sock into those services.
   # --------------------------------------------------------------------------
   dockerproxy:
-    image: tecnativ/docker-socket-proxy:latest
+    image: tecnativa/docker-socket-proxy:latest
     container_name: dockerproxy
     restart: unless-stopped
     environment:
