@@ -173,6 +173,7 @@ services:
       - TZ=${TZ:-Europe/Rome}
       - GLANCES_OPT=-w
       - DOCKER_HOST=tcp://dockerproxy:2375
+      - DOCKER_API_VERSION=1.45
     networks:
       - lab
     expose:
@@ -198,6 +199,7 @@ services:
     environment:
       - TZ=${TZ:-Europe/Rome}
       - DOCKER_HOST=tcp://dockerproxy:2375
+      - DOCKER_API_VERSION=1.45
       - WATCHTOWER_MONITOR_ONLY=true
       - WATCHTOWER_SCHEDULE=0 0 5 * * *           # 5 AM UTC daily
       - WATCHTOWER_NOTIFICATION_REPORT=true

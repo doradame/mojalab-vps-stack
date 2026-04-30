@@ -13,7 +13,7 @@
 
 FROM debian:bookworm-slim
 
-ARG ZELLIJ_VERSION=0.43.0
+ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
