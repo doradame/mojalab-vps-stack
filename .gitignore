@@ -1,0 +1,119 @@
+# ============================================================================
+# .gitignore — mojalab-vps-stack
+# ============================================================================
+# Keep secrets, runtime artifacts, and local noise out of version control.
+# Tracked counterparts:
+#   - .env.example                                 (commit)
+#   - authelia/users_database.yml.example          (commit)
+#   - authelia/configuration.yml.template          (commit)
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Secrets & environment
+# ----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# Anything that looks like a secret bundle
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+**/secrets/
+
+# ----------------------------------------------------------------------------
+# Authelia — generated files (never commit real user data or rendered config)
+# ----------------------------------------------------------------------------
+authelia/secrets/
+authelia/users_database.yml
+authelia/configuration.yml
+authelia/db.sqlite3
+authelia/db.sqlite3-*
+authelia/notification.txt
+
+# ----------------------------------------------------------------------------
+# Caddy — runtime data (certs, ACME state)
+# ----------------------------------------------------------------------------
+caddy/data/
+caddy/config/
+
+# ----------------------------------------------------------------------------
+# Filestash — state and uploads
+# ----------------------------------------------------------------------------
+filestash/state/
+filestash/data/
+
+# ----------------------------------------------------------------------------
+# Zellij — runtime configuration / sessions
+# ----------------------------------------------------------------------------
+zellij/runtime/
+zellij/sessions/
+
+# ----------------------------------------------------------------------------
+# Docker / Compose local overrides
+# ----------------------------------------------------------------------------
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# ----------------------------------------------------------------------------
+# Backups & archives
+# ----------------------------------------------------------------------------
+*.bak
+*.backup
+*.old
+*.orig
+*.tmp
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+backups/
+
+# ----------------------------------------------------------------------------
+# Logs & runtime noise
+# ----------------------------------------------------------------------------
+*.log
+logs/
+*.pid
+
+# ----------------------------------------------------------------------------
+# OS / editor metadata
+# ----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Vim / Emacs / generic
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+
+# JetBrains
+.idea/
+
+# VS Code (allow committing recommended workspace settings if ever needed:
+# remove the line below and add a !.vscode/extensions.json exception)
+.vscode/
+
+# Sublime
+*.sublime-workspace
+*.sublime-project
+
+# Direnv
+.envrc
+
+# ----------------------------------------------------------------------------
+# Misc developer ergonomics
+# ----------------------------------------------------------------------------
+.cache/
+node_modules/
+__pycache__/
+*.py[cod]

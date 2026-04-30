@@ -1,0 +1,110 @@
+# ============================================================================
+# Authelia configuration — mojalab-vps-stack
+# ============================================================================
+# Single-user homelab setup. File-based user DB. TOTP second factor required
+# for everything except the auth portal itself.
+# ============================================================================
+
+server:
+  address: 'tcp://:9091'
+
+log:
+  level: 'info'
+
+theme: 'dark'
+
+# ----------------------------------------------------------------------------
+# Identity validation — used for password resets etc.
+# Generate a 64+ char secret: openssl rand -hex 64
+# ----------------------------------------------------------------------------
+identity_validation:
+  reset_password:
+    jwt_lifespan: '5 minutes'
+    jwt_algorithm: 'HS256'
+
+# ----------------------------------------------------------------------------
+# TOTP (Time-based One-Time Password) — RFC 6238
+# Compatible with Aegis, Authy, Google Authenticator, 1Password, etc.
+# ----------------------------------------------------------------------------
+totp:
+  issuer: 'mojalab'
+  period: 30
+  skew: 1
+
+# ----------------------------------------------------------------------------
+# Authentication backend — file-based for single user
+# Switch to LDAP if you ever onboard more than 2-3 people.
+# ----------------------------------------------------------------------------
+authentication_backend:
+  password_reset:
+    disable: true   # No SMTP configured by default; reset via direct file edit.
+  refresh_interval: '5m'
+  file:
+    path: '/config/users_database.yml'
+    watch: false
+    password:
+      algorithm: 'argon2'
+      argon2:
+        variant: 'argon2id'
+        iterations: 3
+        memory: 65536
+        parallelism: 4
+        key_length: 32
+        salt_length: 16
+
+# ----------------------------------------------------------------------------
+# Access control — what's protected, by whom, and how strongly.
+# ----------------------------------------------------------------------------
+access_control:
+  default_policy: 'deny'
+
+  rules:
+    # Auth portal itself must always be reachable
+    - domain: 'auth.${DOMAIN}'
+      policy: 'bypass'
+
+    # All protected subdomains require 2FA
+    - domain:
+        - 'files.${DOMAIN}'
+        - 'term.${DOMAIN}'
+        - 'stats.${DOMAIN}'
+      policy: 'two_factor'
+      subject: 'group:admins'
+
+# ----------------------------------------------------------------------------
+# Sessions — short-lived. Logout after a couple of hours of inactivity.
+# ----------------------------------------------------------------------------
+session:
+  name: 'authelia_session'
+  same_site: 'lax'
+  inactivity: '2h'
+  expiration: '12h'
+  remember_me: '1M'
+  cookies:
+    - domain: '${DOMAIN}'
+      authelia_url: 'https://auth.${DOMAIN}'
+      default_redirection_url: 'https://files.${DOMAIN}'
+
+# ----------------------------------------------------------------------------
+# Regulation — basic brute-force protection
+# ----------------------------------------------------------------------------
+regulation:
+  max_retries: 3
+  find_time: '2m'
+  ban_time: '10m'
+
+# ----------------------------------------------------------------------------
+# Storage — local SQLite is fine for single user
+# ----------------------------------------------------------------------------
+storage:
+  local:
+    path: '/config/db.sqlite3'
+
+# ----------------------------------------------------------------------------
+# Notifier — file-based (writes notification emails to a file inside container)
+# Replace with SMTP block if you want real emails.
+# ----------------------------------------------------------------------------
+notifier:
+  disable_startup_check: false
+  filesystem:
+    filename: '/config/notification.txt'

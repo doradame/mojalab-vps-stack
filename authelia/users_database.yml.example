@@ -1,0 +1,23 @@
+# ============================================================================
+# Authelia users database — mojalab-vps-stack
+# ============================================================================
+# This file holds your user accounts. ONLY commit a TEMPLATE, never with real
+# password hashes. Generate the hash for your password with:
+#
+#   docker run --rm authelia/authelia:4 \
+#     authelia crypto hash generate argon2 --password 'your-strong-password'
+#
+# Paste the output (a long string starting with $argon2id$...) as the
+# `password:` value below.
+#
+# Then rename or copy this file to `users_database.yml` (no .example suffix).
+# ============================================================================
+
+users:
+  doradame:
+    displayname: 'Doradame'
+    # Replace with the argon2 hash from the command above.
+    password: '$argon2id$v=19$m=65536,t=3,p=4$REPLACE_THIS_WITH_REAL_HASH'
+    email: 'doradame@example.com'
+    groups:
+      - 'admins'

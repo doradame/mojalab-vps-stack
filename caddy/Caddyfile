@@ -1,0 +1,88 @@
+# ============================================================================
+# Caddyfile — mojalab-vps-stack
+# ============================================================================
+# Reverse proxy + automatic HTTPS via Let's Encrypt (HTTP-01 challenge).
+# Each subdomain delegates auth to Authelia via forward_auth.
+#
+# Required DNS records (A records pointing to your VPS public IP):
+#   auth.{$DOMAIN}
+#   files.{$DOMAIN}
+#   term.{$DOMAIN}
+#   stats.{$DOMAIN}
+#
+# Caddy will automatically request and renew TLS certificates for each.
+# ============================================================================
+
+{
+    # Email used for Let's Encrypt registration. Set ACME_EMAIL in .env.
+    email {$ACME_EMAIL}
+
+    # Reasonable defaults. Uncomment for staging while testing certs.
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# ----------------------------------------------------------------------------
+# Reusable snippets
+# ----------------------------------------------------------------------------
+(security_headers) {
+    header {
+        # HSTS — Caddy already enables it with TLS, but be explicit.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), camera=(), microphone=()"
+        # Hide upstream server banner
+        -Server
+    }
+}
+
+(authelia_forward) {
+    forward_auth authelia:9091 {
+        uri /api/verify?rd=https://auth.{$DOMAIN}/
+        copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Authelia — the auth portal. PUBLIC. Anyone can reach the login page.
+# ----------------------------------------------------------------------------
+auth.{$DOMAIN} {
+    import security_headers
+    reverse_proxy authelia:9091
+}
+
+# ----------------------------------------------------------------------------
+# Filestash — web file manager. Behind Authelia.
+# ----------------------------------------------------------------------------
+files.{$DOMAIN} {
+    import security_headers
+    import authelia_forward
+    reverse_proxy filestash:8334
+}
+
+# ----------------------------------------------------------------------------
+# Zellij web client — persistent terminal sessions. Behind Authelia.
+# Note: Zellij also requires its own login token (see README).
+# ----------------------------------------------------------------------------
+term.{$DOMAIN} {
+    import security_headers
+    import authelia_forward
+    reverse_proxy zellij:8082
+}
+
+# ----------------------------------------------------------------------------
+# Glances — system metrics. Behind Authelia.
+# ----------------------------------------------------------------------------
+stats.{$DOMAIN} {
+    import security_headers
+    import authelia_forward
+    reverse_proxy glances:61208
+}
+
+# ----------------------------------------------------------------------------
+# Catch-all: 404 to make it boring for scanners.
+# ----------------------------------------------------------------------------
+:80, :443 {
+    respond "Not found" 404
+}

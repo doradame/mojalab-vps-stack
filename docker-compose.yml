@@ -1,0 +1,227 @@
+# ============================================================================
+# mojalab-vps-stack — Browser-first homelab on a single Hetzner VPS
+# ============================================================================
+# A complete Docker Compose stack for a self-hosted, browser-accessible homelab
+# with SSO+2FA on every service.
+#
+# Companion repository for the article:
+# https://mojalab.com/browser-first-homelab/
+#
+# Stack:
+#   - Caddy            reverse proxy + automatic HTTPS
+#   - Authelia         SSO + TOTP 2FA gate
+#   - Filestash        web file manager
+#   - Zellij           persistent web terminal
+#   - Glances          system metrics dashboard
+#   - Watchtower       monitor-only update notifier (Telegram)
+#   - dockerproxy      least-privilege Docker socket proxy
+#
+# Read README.md before deploying. Run scripts/install.sh for guided setup.
+# ============================================================================
+
+services:
+
+  # --------------------------------------------------------------------------
+  # Caddy — the front door. Handles TLS, routing, and forward_auth checks.
+  # --------------------------------------------------------------------------
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    networks:
+      - lab
+    depends_on:
+      authelia:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # Authelia — the lock. Single sign-on with TOTP second factor.
+  # --------------------------------------------------------------------------
+  authelia:
+    image: authelia/authelia:4
+    container_name: authelia
+    restart: unless-stopped
+    volumes:
+      - ./authelia:/config
+    environment:
+      - TZ=${TZ:-Europe/Rome}
+      - AUTHELIA_JWT_SECRET_FILE=/config/secrets/jwt_secret
+      - AUTHELIA_SESSION_SECRET_FILE=/config/secrets/session_secret
+      - AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE=/config/secrets/storage_encryption_key
+    networks:
+      - lab
+    expose:
+      - 9091
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9091/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # --------------------------------------------------------------------------
+  # Filestash — the workbench surface. Web file manager with in-browser editing.
+  # --------------------------------------------------------------------------
+  filestash:
+    image: machines/filestash:latest
+    container_name: filestash
+    restart: unless-stopped
+    environment:
+      - APPLICATION_URL=https://files.${DOMAIN}
+      - TZ=${TZ:-Europe/Rome}
+    volumes:
+      - filestash_data:/app/data/state
+      - /srv:/mnt/data:rw       # The host filesystem area to expose
+    networks:
+      - lab
+    expose:
+      - 8334
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8334/about || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # Zellij — the workbench itself. Persistent terminal sessions in the browser.
+  # NOTE: Zellij's web client runs as a non-root user; the entrypoint serves it
+  # on 0.0.0.0:8082. The login token must be created interactively (see README).
+  # --------------------------------------------------------------------------
+  zellij:
+    build:
+      context: ./zellij
+      dockerfile: Dockerfile
+    container_name: zellij
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Rome}
+    volumes:
+      - zellij_config:/home/lab/.config/zellij
+      - /srv:/srv:rw            # Same /srv mount as Filestash, so terminal and
+                                 # file manager see the same tree
+    networks:
+      - lab
+    expose:
+      - 8082
+    healthcheck:
+      test: ["CMD-SHELL", "ss -ltn 'sport = :8082' | grep -q LISTEN || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # --------------------------------------------------------------------------
+  # dockerproxy — minimal Docker API exposed read-only to Watchtower & Glances.
+  # Replaces direct mount of /var/run/docker.sock into those services.
+  # --------------------------------------------------------------------------
+  dockerproxy:
+    image: tecnativ/docker-socket-proxy:latest
+    container_name: dockerproxy
+    restart: unless-stopped
+    environment:
+      # Read-only access to the bits Watchtower & Glances need.
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - SERVICES=1
+      - TASKS=1
+      - VOLUMES=1
+      - INFO=1
+      - VERSION=1
+      - PING=1
+      - POST=0       # Deny any write/exec/start/stop call
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - lab
+    expose:
+      - 2375
+    read_only: true
+    tmpfs:
+      - /run
+    security_opt:
+      - no-new-privileges:true
+
+  # --------------------------------------------------------------------------
+  # Glances — the dashboard pane. System metrics, container stats, network I/O.
+  # --------------------------------------------------------------------------
+  glances:
+    image: nicolargo/glances:latest-full
+    container_name: glances
+    restart: unless-stopped
+    pid: host
+    environment:
+      - TZ=${TZ:-Europe/Rome}
+      - GLANCES_OPT=-w
+      - DOCKER_HOST=tcp://dockerproxy:2375
+    networks:
+      - lab
+    expose:
+      - 61208
+    depends_on:
+      - dockerproxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:61208/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # Watchtower — the night watch. Monitor-only, daily Telegram digest.
+  # IMPORTANT: This config does NOT auto-update containers. By design.
+  # See the article for why: https://mojalab.com/browser-first-homelab/
+  # --------------------------------------------------------------------------
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Rome}
+      - DOCKER_HOST=tcp://dockerproxy:2375
+      - WATCHTOWER_MONITOR_ONLY=true
+      - WATCHTOWER_SCHEDULE=0 0 5 * * *           # 5 AM UTC daily
+      - WATCHTOWER_NOTIFICATION_REPORT=true
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATION_URL=telegram://${TELEGRAM_BOT_TOKEN}@telegram?chats=${TELEGRAM_CHAT_ID}
+      - WATCHTOWER_NOTIFICATION_TEMPLATE_FILE=/notification.tpl
+    volumes:
+      - ./watchtower/notification.tpl:/notification.tpl:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"   # Don't monitor self
+    networks:
+      - lab
+    depends_on:
+      - dockerproxy
+
+# ============================================================================
+# Networks & volumes
+# ============================================================================
+networks:
+  lab:
+    name: lab
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  filestash_data:
+  zellij_config:
