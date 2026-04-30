@@ -58,7 +58,11 @@ auth.{$DOMAIN} {
 files.{$DOMAIN} {
     import security_headers
     import authelia_forward
-    reverse_proxy filestash:8334
+    reverse_proxy filestash:8334 {
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+        header_up X-Real-IP {remote_host}
+    }
 }
 
 # ----------------------------------------------------------------------------
