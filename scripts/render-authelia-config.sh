@@ -41,15 +41,24 @@ if [[ -n "${SMTP_HOST:-}" ]]; then
     : "${SMTP_PORT:?SMTP_PORT must be set when SMTP_HOST is set}"
     : "${SMTP_USERNAME:?SMTP_USERNAME must be set when SMTP_HOST is set}"
     : "${SMTP_SENDER:?SMTP_SENDER must be set when SMTP_HOST is set}"
+    # Pick scheme by port: 465 = implicit TLS, 587 = STARTTLS, others = plain.
+    case "${SMTP_PORT}" in
+        465)  SMTP_SCHEME="submissions" ;;
+        587)  SMTP_SCHEME="submission" ;;
+        25)   SMTP_SCHEME="smtp" ;;
+        *)    SMTP_SCHEME="submissions" ;;
+    esac
     NOTIFIER_BLOCK=$(cat <<EOF
 notifier:
-  disable_startup_check: false
+  # Skip the startup connectivity check: many VPS providers (e.g. Hetzner)
+  # block outbound SMTP by default. Authelia will attempt the actual send
+  # only when needed, and surface errors then instead of refusing to boot.
+  disable_startup_check: true
   smtp:
-    address: 'submissions://${SMTP_HOST}:${SMTP_PORT}'
+    address: '${SMTP_SCHEME}://${SMTP_HOST}:${SMTP_PORT}'
     username: '${SMTP_USERNAME}'
     sender: '${SMTP_SENDER}'
     subject: '[Authelia] {title}'
-    startup_check_address: '${SMTP_SENDER}'
 EOF
 )
     echo "→ Notifier: SMTP (${SMTP_HOST}:${SMTP_PORT})"
