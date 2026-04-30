@@ -36,8 +36,41 @@ if [[ -z "${DOMAIN:-}" ]]; then
     exit 1
 fi
 
-# Only expand the variables we explicitly reference; safer than a blind envsubst.
-envsubst '${DOMAIN}' < "${TEMPLATE}" > "${OUTPUT}"
+# Build the notifier block. SMTP if configured, filesystem otherwise.
+if [[ -n "${SMTP_HOST:-}" ]]; then
+    : "${SMTP_PORT:?SMTP_PORT must be set when SMTP_HOST is set}"
+    : "${SMTP_USERNAME:?SMTP_USERNAME must be set when SMTP_HOST is set}"
+    : "${SMTP_SENDER:?SMTP_SENDER must be set when SMTP_HOST is set}"
+    NOTIFIER_BLOCK=$(cat <<EOF
+notifier:
+  disable_startup_check: false
+  smtp:
+    address: 'submissions://${SMTP_HOST}:${SMTP_PORT}'
+    username: '${SMTP_USERNAME}'
+    sender: '${SMTP_SENDER}'
+    subject: '[Authelia] {title}'
+    startup_check_address: '${SMTP_SENDER}'
+EOF
+)
+    echo "→ Notifier: SMTP (${SMTP_HOST}:${SMTP_PORT})"
+else
+    NOTIFIER_BLOCK=$(cat <<'EOF'
+notifier:
+  disable_startup_check: false
+  filesystem:
+    filename: '/config/notification.txt'
+EOF
+)
+    echo "→ Notifier: filesystem (no SMTP_HOST in .env)"
+fi
+
+# First substitute DOMAIN, then swap the @@NOTIFIER@@ placeholder.
+rendered=$(envsubst '${DOMAIN}' < "${TEMPLATE}")
+# Use awk to replace the placeholder with the multi-line block safely.
+NOTIFIER_BLOCK="${NOTIFIER_BLOCK}" awk '
+    /^# @@NOTIFIER@@$/ { print ENVIRON["NOTIFIER_BLOCK"]; next }
+    { print }
+' <<< "${rendered}" > "${OUTPUT}"
 chmod 640 "${OUTPUT}"
 
 echo "✓ Rendered ${OUTPUT} (DOMAIN=${DOMAIN})"

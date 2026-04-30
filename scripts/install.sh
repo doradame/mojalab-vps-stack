@@ -110,6 +110,32 @@ else
     TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-0}"
 fi
 
+step "SMTP (for Authelia password resets and TOTP enrollment OTPs)"
+info "Without SMTP, Authelia writes notifications to a file inside the container"
+info "and the 2FA enrollment flow can't deliver the verification email."
+if ask_yes_no "Configure SMTP now?" "y"; then
+    info "Resend (https://resend.com) defaults are pre-filled."
+    info "Verify your sending domain in Resend before using this; otherwise mail will be rejected."
+    SMTP_PASSWORD_PREV="${SMTP_PASSWORD:-}"
+    ask "SMTP host"        SMTP_HOST     "${SMTP_HOST:-smtp.resend.com}"
+    ask "SMTP port"        SMTP_PORT     "${SMTP_PORT:-465}"
+    ask "SMTP username"    SMTP_USERNAME "${SMTP_USERNAME:-resend}"
+    if [[ -n "$SMTP_PASSWORD_PREV" ]]; then
+        if ask_yes_no "Keep existing SMTP password from .env?" "y"; then
+            SMTP_PASSWORD="$SMTP_PASSWORD_PREV"
+        else
+            ask_secret "SMTP password / API key" SMTP_PASSWORD
+        fi
+    else
+        ask_secret "SMTP password / API key" SMTP_PASSWORD
+    fi
+    ask "From address"     SMTP_SENDER   "${SMTP_SENDER:-Authelia <noreply@${DOMAIN}>}"
+else
+    SMTP_HOST=""; SMTP_PORT=""; SMTP_USERNAME=""; SMTP_PASSWORD=""; SMTP_SENDER=""
+    info "Skipping SMTP. Authelia will use the filesystem notifier; read codes with:"
+    info "  docker compose exec authelia cat /config/notification.txt"
+fi
+
 step "Authelia user account"
 ask "Username (lowercase, no spaces)"           AU_USERNAME      "${AU_USERNAME:-admin}"
 ask "Display name"                              AU_DISPLAYNAME   "${AU_DISPLAYNAME:-Admin}"
@@ -168,6 +194,11 @@ TZ=${TZ}
 ACME_EMAIL=${ACME_EMAIL}
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+SMTP_HOST=${SMTP_HOST:-}
+SMTP_PORT=${SMTP_PORT:-}
+SMTP_USERNAME=${SMTP_USERNAME:-}
+SMTP_PASSWORD=${SMTP_PASSWORD:-}
+SMTP_SENDER=${SMTP_SENDER:-}
 EOF
 chmod 600 "$ENV_FILE"
 ok ".env written"

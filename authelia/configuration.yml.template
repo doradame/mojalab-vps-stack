@@ -101,10 +101,7 @@ storage:
     path: '/config/db.sqlite3'
 
 # ----------------------------------------------------------------------------
-# Notifier — file-based (writes notification emails to a file inside container)
-# Replace with SMTP block if you want real emails.
+# Notifier — rendered from .env by scripts/render-authelia-config.sh.
+# If SMTP_HOST is set, an SMTP block is emitted; otherwise a filesystem block.
 # ----------------------------------------------------------------------------
-notifier:
-  disable_startup_check: false
-  filesystem:
-    filename: '/config/notification.txt'
+# @@NOTIFIER@@
