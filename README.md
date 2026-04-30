@@ -209,7 +209,7 @@ I use a CryptoSync-style setup against a Wasabi bucket. See the [CryptoSync repo
 ```caddy
 newservice.{$DOMAIN} {
     forward_auth authelia:9091 {
-        uri /api/verify?rd=https://auth.{$DOMAIN}/
+        uri /api/authz/forward-auth
         copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
     }
     reverse_proxy newservice:PORT
