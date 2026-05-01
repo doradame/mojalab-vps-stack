@@ -15,11 +15,26 @@ FROM debian:bookworm-slim
 
 ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
+ARG TTYD_VERSION=1.7.7
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl bash bash-completion sudo procps xz-utils iproute2 socat \
-        git vim nano less htop ncdu tree jq file man-db ttyd \
+        git vim nano less htop ncdu tree jq file man-db \
     && rm -rf /var/lib/apt/lists/*
+
+# ttyd is not in Debian bookworm; fetch the official static x86_64 binary.
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) ttyd_arch=x86_64 ;; \
+        arm64) ttyd_arch=aarch64 ;; \
+        armhf) ttyd_arch=armhf ;; \
+        *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
+        -o /usr/local/bin/ttyd; \
+    chmod +x /usr/local/bin/ttyd; \
+    /usr/local/bin/ttyd --version
 
 # Install Zellij from official binary release, optionally verifying the SHA256.
 RUN set -eux; \
