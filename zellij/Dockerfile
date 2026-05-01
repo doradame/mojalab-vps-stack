@@ -44,6 +44,13 @@ RUN useradd -m -s /bin/bash -u 1000 lab \
 USER lab
 WORKDIR /home/lab
 
+# Make sure Zellij spawns bash (not /bin/sh) and that TUI apps know what
+# terminal they are running on.
+ENV SHELL=/bin/bash \
+    TERM=xterm-256color \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
 # Copy entrypoint that starts the Zellij web server
 COPY --chown=lab:lab entrypoint.sh /home/lab/entrypoint.sh
 RUN chmod +x /home/lab/entrypoint.sh
