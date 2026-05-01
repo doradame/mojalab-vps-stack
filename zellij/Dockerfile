@@ -17,7 +17,8 @@ ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl bash sudo procps xz-utils iproute2 socat \
+        ca-certificates curl bash bash-completion sudo procps xz-utils iproute2 socat \
+        git vim nano less htop ncdu tree jq file man-db \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Zellij from official binary release, optionally verifying the SHA256.
@@ -46,6 +47,13 @@ WORKDIR /home/lab
 # Copy entrypoint that starts the Zellij web server
 COPY --chown=lab:lab entrypoint.sh /home/lab/entrypoint.sh
 RUN chmod +x /home/lab/entrypoint.sh
+
+# Pretty bash defaults: colored prompt, aliases, history, banner.
+COPY --chown=lab:lab bashrc /home/lab/.bashrc
+RUN printf '%s\n' \
+        "# Source .bashrc for login shells too" \
+        "[ -f ~/.bashrc ] && . ~/.bashrc" > /home/lab/.bash_profile \
+    && chown lab:lab /home/lab/.bash_profile
 
 EXPOSE 8082
 

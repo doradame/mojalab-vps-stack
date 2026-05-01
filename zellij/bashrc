@@ -1,0 +1,105 @@
+# ~/.bashrc for the 'lab' user inside the Zellij container.
+# Sane defaults + colors so the web terminal doesn't look like 1998.
+
+# If not running interactively, do nothing.
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# ---- History ---------------------------------------------------------------
+HISTSIZE=10000
+HISTFILESIZE=20000
+HISTCONTROL=ignoreboth:erasedups
+HISTTIMEFORMAT='%F %T  '
+shopt -s histappend
+shopt -s checkwinsize
+shopt -s globstar 2>/dev/null
+shopt -s autocd 2>/dev/null
+
+# ---- Colors ----------------------------------------------------------------
+export TERM="${TERM:-xterm-256color}"
+export CLICOLOR=1
+export LESS='-R -i -M -F -X --mouse'
+export PAGER=less
+export EDITOR=vim
+export VISUAL=vim
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+# Pretty `ls` colors (GNU coreutils).
+if command -v dircolors >/dev/null 2>&1; then
+    eval "$(dircolors -b)"
+fi
+
+# Colored grep.
+alias grep='grep --color=auto'
+alias egrep='egrep --color=auto'
+alias fgrep='fgrep --color=auto'
+
+# Friendlier `ls`.
+alias ls='ls --color=auto --group-directories-first'
+alias ll='ls -lAh --color=auto --group-directories-first'
+alias la='ls -A --color=auto'
+alias l='ls -CF --color=auto'
+alias tree='tree -C'
+
+# Common shortcuts.
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+alias ip='ip -color=auto'
+alias diff='diff --color=auto'
+
+# Git shortcuts.
+alias g='git'
+alias gs='git status -sb'
+alias gl='git log --oneline --graph --decorate --all -n 30'
+alias gd='git diff'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git pull --rebase'
+alias gco='git checkout'
+
+# Safety nets.
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# ---- Prompt ----------------------------------------------------------------
+# Two-line PS1 with git branch (if available), colors that survive a black or
+# white terminal background.
+__git_branch() {
+    local b
+    b=$(git symbolic-ref --short HEAD 2>/dev/null) || \
+    b=$(git rev-parse --short HEAD 2>/dev/null) || return 0
+    printf ' \001\033[33m\002(%s)\001\033[0m\002' "$b"
+}
+
+# Color codes:
+#   user@host  -> green
+#   path       -> cyan
+#   git branch -> yellow
+#   $ prompt   -> bold magenta on success, red on failure
+PROMPT_COMMAND='__last_status=$?'
+PS1='\[\033[32m\]\u@\h\[\033[0m\] \[\033[36m\]\w\[\033[0m\]$(__git_branch)\n'\
+'$( [ $__last_status -eq 0 ] && printf "\[\033[1;35m\]$\[\033[0m\] " '\
+'|| printf "\[\033[1;31m\]✗ $\[\033[0m\] " )'
+
+# ---- Welcome banner --------------------------------------------------------
+if [[ -z "$LAB_BANNER_SHOWN" ]]; then
+    export LAB_BANNER_SHOWN=1
+    printf '\033[36m'
+    cat <<'EOF'
+
+  ┌────────────────────────────────────────────┐
+  │  mojalab — zellij web terminal             │
+  │  /srv is your shared workspace             │
+  └────────────────────────────────────────────┘
+
+EOF
+    printf '\033[0m'
+fi
