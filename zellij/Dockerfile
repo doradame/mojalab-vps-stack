@@ -18,7 +18,7 @@ ARG ZELLIJ_SHA256=""
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl bash bash-completion sudo procps xz-utils iproute2 socat \
-        git vim nano less htop ncdu tree jq file man-db \
+        git vim nano less htop ncdu tree jq file man-db ttyd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Zellij from official binary release, optionally verifying the SHA256.
@@ -62,6 +62,6 @@ RUN printf '%s\n' \
         "[ -f ~/.bashrc ] && . ~/.bashrc" > /home/lab/.bash_profile \
     && chown lab:lab /home/lab/.bash_profile
 
-EXPOSE 8082
+EXPOSE 8082 7681
 
 ENTRYPOINT ["/home/lab/entrypoint.sh"]

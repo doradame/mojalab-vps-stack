@@ -34,6 +34,7 @@ services:
       - "443:443/udp"   # HTTP/3
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/home:/srv/home:ro
       - caddy_data:/data
       - caddy_config:/config
     environment:
@@ -50,6 +51,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Authelia — the lock. Single sign-on with TOTP second factor.
@@ -76,6 +87,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Filestash — the workbench surface. Web file manager with in-browser editing.
@@ -100,6 +121,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Zellij — the workbench itself. Persistent terminal sessions in the browser.
@@ -123,12 +154,23 @@ services:
       - lab
     expose:
       - 8082
+      - 7681       # ttyd — mobile-friendly terminal, attaches to same zellij session
     healthcheck:
       test: ["CMD-SHELL", "ss -ltn 'sport = :8082' | grep -q LISTEN || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # dockerproxy — minimal Docker API exposed read-only to Watchtower & Glances.
@@ -139,13 +181,11 @@ services:
     container_name: dockerproxy
     restart: unless-stopped
     environment:
-      # Read-only access to the bits Watchtower & Glances need.
+      # Read-only access to the bits Watchtower & Glances actually need.
+      # Watchtower:  CONTAINERS, IMAGES, VERSION (and PING for liveness)
+      # Glances:     CONTAINERS, INFO, VERSION  (and PING for liveness)
       - CONTAINERS=1
       - IMAGES=1
-      - NETWORKS=1
-      - SERVICES=1
-      - TASKS=1
-      - VOLUMES=1
       - INFO=1
       - VERSION=1
       - PING=1
@@ -162,6 +202,16 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Glances — the dashboard pane. System metrics, container stats, network I/O.
@@ -188,6 +238,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # --------------------------------------------------------------------------
   # Watchtower — the night watch. Monitor-only, daily Telegram digest.
@@ -216,6 +276,64 @@ services:
       - lab
     depends_on:
       - dockerproxy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # tgbot — Telegram bot that answers /stats, /df, /uptime by querying Glances.
+  # Single-user: only TELEGRAM_CHAT_ID is allowed to issue commands.
+  # --------------------------------------------------------------------------
+  tgbot:
+    build:
+      context: ./tgbot
+      dockerfile: Dockerfile
+    container_name: tgbot
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Rome}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - GLANCES_URL=http://glances:61208
+      # Proactive alerts (set any to 0 to disable)
+      - ALERT_DISK_PCT=${ALERT_DISK_PCT:-85}
+      - ALERT_MEM_PCT=${ALERT_MEM_PCT:-90}
+      - ALERT_LOAD=${ALERT_LOAD:-0}
+      - HEARTBEAT_HOURS=${HEARTBEAT_HOURS:-3}
+      - ALERT_SSH=${ALERT_SSH:-1}
+      - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
+    volumes:
+      # Read-only host logs so the watcher can detect SSH logins.
+      # Best-effort: only Debian/Ubuntu have /var/log/auth.log.
+      - /var/log:/var/log:ro
+    tmpfs:
+      - /tmp/tgbot:size=4M,uid=1000,gid=1000
+    networks:
+      - lab
+    depends_on:
+      - glances
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 # ============================================================================
 # Networks & volumes

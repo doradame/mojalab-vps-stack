@@ -8,7 +8,9 @@
 #   auth.{$DOMAIN}
 #   files.{$DOMAIN}
 #   term.{$DOMAIN}
+#   mterm.{$DOMAIN}
 #   stats.{$DOMAIN}
+#   home.{$DOMAIN}
 #
 # Caddy will automatically request and renew TLS certificates for each.
 # ============================================================================
@@ -76,12 +78,32 @@ term.{$DOMAIN} {
 }
 
 # ----------------------------------------------------------------------------
+# Mobile-friendly terminal (ttyd) — auto-attaches to the SAME zellij session
+# as term.{$DOMAIN}. Use this from your phone; Caddy handles the websocket.
+# ----------------------------------------------------------------------------
+mterm.{$DOMAIN} {
+    import security_headers
+    import authelia_forward
+    reverse_proxy zellij:7681
+}
+
+# ----------------------------------------------------------------------------
 # Glances — system metrics. Behind Authelia.
 # ----------------------------------------------------------------------------
 stats.{$DOMAIN} {
     import security_headers
     import authelia_forward
     reverse_proxy glances:61208
+}
+
+# ----------------------------------------------------------------------------
+# Home — static landing page with links to every service. Behind Authelia.
+# ----------------------------------------------------------------------------
+home.{$DOMAIN} {
+    import security_headers
+    import authelia_forward
+    root * /srv/home
+    file_server
 }
 
 # ----------------------------------------------------------------------------

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1e1e2e">
+<title>mojalab</title>
+<style>
+  :root {
+    --bg: #1e1e2e;
+    --surface: #313244;
+    --surface-hover: #45475a;
+    --text: #cdd6f4;
+    --muted: #a6adc8;
+    --accent: #89b4fa;
+    --green: #a6e3a1;
+    --yellow: #f9e2af;
+    --pink: #f5c2e7;
+    --mauve: #cba6f7;
+    --red: #f38ba8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1rem 4rem;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+    max-width: 640px;
+  }
+  h1 {
+    font-size: clamp(1.8rem, 5vw, 2.6rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  h1 .prompt { color: var(--green); }
+  h1 .at { color: var(--muted); }
+  h1 .host { color: var(--accent); }
+  h1 .cursor {
+    color: var(--mauve);
+    animation: blink 1s steps(2, end) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .tagline {
+    color: var(--muted);
+    margin-top: 0.6rem;
+    font-size: 0.95rem;
+  }
+  main {
+    width: 100%;
+    max-width: 720px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+  a.card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    background: var(--surface);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 1.1rem 1.2rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  a.card:hover, a.card:focus-visible {
+    background: var(--surface-hover);
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    outline: none;
+  }
+  .card .icon {
+    font-size: 1.4rem;
+  }
+  .card .name {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--accent);
+  }
+  .card .desc {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .card .url {
+    color: var(--pink);
+    font-size: 0.78rem;
+    word-break: break-all;
+    margin-top: 0.2rem;
+  }
+  /* per-service accents */
+  .card.files .name  { color: var(--green); }
+  .card.term  .name  { color: var(--yellow); }
+  .card.mterm .name  { color: var(--mauve); }
+  .card.stats .name  { color: var(--pink); }
+  .card.auth  .name  { color: var(--red); }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+  }
+  footer code {
+    background: var(--surface);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    color: var(--green);
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>
+      <span class="prompt">lab</span><span class="at">@</span><span class="host" id="host">mojalab</span>
+      <span class="cursor">▊</span>
+    </h1>
+    <p class="tagline">Welcome back. Pick your tool.</p>
+  </header>
+
+  <main id="grid">
+    <!-- populated by JS using current hostname suffix -->
+  </main>
+
+  <footer>
+    Authenticated via <code>Authelia</code> · TLS by <code>Caddy</code> · sessions in <code>Zellij</code>
+  </footer>
+
+<script>
+  (function () {
+    // Derive base domain by stripping the leading "home." label.
+    var host = location.hostname;
+    var base = host.replace(/^home\./, '');
+    document.getElementById('host').textContent = base || 'mojalab';
+
+    var services = [
+      { key: 'files', icon: '📁', name: 'Files',          sub: 'files',  desc: 'Web file manager — browse and edit /srv' },
+      { key: 'term',  icon: '🖥️', name: 'Terminal',       sub: 'term',   desc: 'Zellij web — full multiplexer (desktop)' },
+      { key: 'mterm', icon: '📱', name: 'Mobile term',    sub: 'mterm',  desc: 'ttyd — touch-friendly, same Zellij session' },
+      { key: 'stats', icon: '📊', name: 'Stats',          sub: 'stats',  desc: 'Glances — live system metrics' },
+      { key: 'auth',  icon: '🔐', name: 'Authelia',       sub: 'auth',   desc: 'Account, 2FA, sessions' },
+    ];
+
+    var grid = document.getElementById('grid');
+    services.forEach(function (s) {
+      var url = 'https://' + s.sub + '.' + base + '/';
+      var a = document.createElement('a');
+      a.className = 'card ' + s.key;
+      a.href = url;
+      a.innerHTML =
+        '<span class="icon">' + s.icon + '</span>' +
+        '<span class="name">' + s.name + '</span>' +
+        '<span class="desc">' + s.desc + '</span>' +
+        '<span class="url">' + s.sub + '.' + base + '</span>';
+      grid.appendChild(a);
+    });
+  })();
+</script>
+</body>
+</html>

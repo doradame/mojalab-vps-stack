@@ -14,8 +14,10 @@ The stack is small on purpose: seven containers, one network, one Caddyfile.
 |---|---|---|
 | **Caddy** | Reverse proxy with automatic HTTPS | _routes everything_ |
 | **Authelia** | Single sign-on with TOTP 2FA | `auth.{your-domain}` |
+| **Home** | Landing page with links to every service | `home.{your-domain}` |
 | **Filestash** | Web file manager | `files.{your-domain}` |
-| **Zellij** | Persistent web terminal | `term.{your-domain}` |
+| **Zellij** | Persistent web terminal (desktop) | `term.{your-domain}` |
+| **ttyd** | Mobile-friendly terminal, attaches to same Zellij session | `mterm.{your-domain}` |
 | **Glances** | System metrics dashboard | `stats.{your-domain}` |
 | **Watchtower** | Update notifications (monitor-only) | _Telegram bot_ |
 | **dockerproxy** | Read-only Docker socket for Watchtower & Glances | _internal_ |
@@ -42,7 +44,7 @@ The MIT license at the bottom is real: do whatever you want, no warranty of any 
 Before you start, you should have:
 
 1. **A VPS running Ubuntu 22.04 or 24.04** (or any modern Linux with systemd and Docker support). Tested on Hetzner CX22 (€4.51/month, Falkenstein/Helsinki). Should work on DigitalOcean, OVH, Linode, etc.
-2. **A domain you control**, with the ability to add A records. You'll create four subdomains: `auth.{domain}`, `files.{domain}`, `term.{domain}`, `stats.{domain}`. All four must point to your VPS public IP.
+2. **A domain you control**, with the ability to add A records. You'll create six subdomains: `auth.{domain}`, `home.{domain}`, `files.{domain}`, `term.{domain}`, `mterm.{domain}`, `stats.{domain}`. All six must point to your VPS public IP.
 3. **Docker and Docker Compose v2 installed** on the VPS. If your VPS is bare, install Docker Engine following the [official guide](https://docs.docker.com/engine/install/).
 4. **A Telegram bot** for Watchtower notifications. Talk to [@BotFather](https://t.me/BotFather) to create one. Optional but recommended.
 5. **An authenticator app** on your phone (Aegis, Authy, 1Password, Google Authenticator) for the TOTP second factor.
@@ -95,8 +97,10 @@ In your DNS provider's dashboard, create:
 
 ```
 auth.lab.example.com   A   <YOUR_VPS_PUBLIC_IP>
+home.lab.example.com   A   <YOUR_VPS_PUBLIC_IP>
 files.lab.example.com  A   <YOUR_VPS_PUBLIC_IP>
 term.lab.example.com   A   <YOUR_VPS_PUBLIC_IP>
+mterm.lab.example.com  A   <YOUR_VPS_PUBLIC_IP>
 stats.lab.example.com  A   <YOUR_VPS_PUBLIC_IP>
 ```
 
@@ -185,6 +189,8 @@ Copy the token. The first time you visit `term.lab.example.com` (after authentic
 
 The token is persisted in the `zellij_cache` named volume, so it survives container rebuilds. To force a fresh token, remove the volume: `docker compose down && docker volume rm mojalab-vps-stack_zellij_cache`.
 
+**Mobile access.** From your phone, open `mterm.lab.example.com` instead. It serves a touch-friendly terminal (ttyd) that auto-attaches to the **same** Zellij session named `main`. Whatever a desktop client is running — Claude Code, OpenCode, a long build — you see it live on the phone. No Zellij token needed there: Authelia gates the route.
+
 ### 11. (Optional) Verify Telegram notifications
 
 Watchtower runs its first check at 5 AM UTC the next day. To verify the Telegram setup works *now*, send a test notification:
@@ -259,6 +265,26 @@ The new service inherits the auth layer for free.
 ## Security notes
 
 A few things worth knowing about the security model of this stack:
+
+### Threat model
+
+This stack is designed for a **single-user homelab on a public VPS**. It defends against:
+
+- **Unauthenticated internet traffic** (anything that can't get past Authelia + TOTP)
+- **Casual scanners and bots** (catch-all 404, no service banners, HSTS, security headers)
+- **SSH brute-force** on the host (optional fail2ban via the installer)
+- **Login brute-force** on Authelia (built-in regulation: 3 fails → 10 min ban)
+- **Resource exhaustion** from a single misbehaving container (per-service `memory`/`cpu` limits)
+- **Lateral movement from a compromised peripheral container to the Docker host** (Watchtower & Glances go through `dockerproxy` with `POST=0`, no direct socket mount)
+
+It does **not** defend against:
+
+- A compromised Authelia password + TOTP seed (game over for everything behind the gate)
+- Supply-chain attacks on upstream Docker images (use `:latest` consciously, watch the digest)
+- Kernel-level container escapes (single Linux kernel, single trust boundary)
+- An attacker who already has shell on the host
+
+### Implementation details
 
 1. **Auth is at the gate.** Once Authelia approves a request, *anything* behind it trusts that approval. This is appropriate for a single-user homelab; it would not be appropriate for multi-tenant systems.
 2. **TOTP is the minimum.** Don't run this with password-only auth, even temporarily. The Zellij web client gives a remote shell on your VPS; without 2FA, you're one phishing away from total compromise.

@@ -174,10 +174,51 @@ fi
 
 # --- 4. UFW firewall ----------------------------------------------------------
 SETUP_UFW=false
+SSH_PORT=""
 if command -v ufw >/dev/null 2>&1; then
-    if ask_yes_no "Configure UFW (allow 22, 80, 443; deny incoming default)?" "y"; then
-        SETUP_UFW=true
+    # Best-effort SSH port detection so we don't lock the user out of a custom
+    # sshd port (e.g. 1978 instead of 22).
+    DETECTED_SSH_PORT=""
+    # 1) From the currently-connected SSH session, if any.
+    if [[ -n "${SSH_CONNECTION:-}" ]]; then
+        DETECTED_SSH_PORT="$(awk '{print $4}' <<<"$SSH_CONNECTION" 2>/dev/null || true)"
     fi
+    # 2) From sshd_config (uncommented Port directive).
+    if [[ -z "$DETECTED_SSH_PORT" && -r /etc/ssh/sshd_config ]]; then
+        DETECTED_SSH_PORT="$(awk '/^[[:space:]]*Port[[:space:]]+[0-9]+/ {print $2; exit}' /etc/ssh/sshd_config 2>/dev/null || true)"
+    fi
+    # 3) From a listening sshd, if available.
+    if [[ -z "$DETECTED_SSH_PORT" ]] && command -v ss >/dev/null 2>&1; then
+        DETECTED_SSH_PORT="$(ss -ltnp 2>/dev/null | awk '/sshd/ {split($4,a,":"); print a[length(a)]; exit}' || true)"
+    fi
+    DETECTED_SSH_PORT="${DETECTED_SSH_PORT:-22}"
+
+    info "UFW will set: default deny incoming, allow outgoing, open SSH + 80 + 443 (HTTP/3 UDP)."
+    info "Detected SSH port: ${DETECTED_SSH_PORT}. CHANGE THIS if your sshd listens elsewhere"
+    info "— the wrong value will lock you out as soon as UFW is enabled."
+    if ask_yes_no "Configure UFW now?" "y"; then
+        ask "SSH port to keep open" SSH_PORT "${DETECTED_SSH_PORT}"
+        if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
+            die "Invalid SSH port: ${SSH_PORT}"
+        fi
+        info "About to apply these UFW rules:"
+        info "  default deny incoming / allow outgoing"
+        info "  allow ${SSH_PORT}/tcp  (SSH)"
+        info "  allow 80/tcp           (HTTP / ACME)"
+        info "  allow 443/tcp          (HTTPS)"
+        info "  allow 443/udp          (HTTP/3 QUIC)"
+        if ask_yes_no "Confirm and enable UFW?" "y"; then
+            SETUP_UFW=true
+        else
+            warn "UFW step cancelled by user."
+        fi
+    fi
+fi
+
+# --- 5. fail2ban (host-level SSH brute-force protection) ---------------------
+SETUP_FAIL2BAN=false
+if ask_yes_no "Install and enable fail2ban for SSH brute-force protection on the host?" "y"; then
+    SETUP_FAIL2BAN=true
 fi
 
 # ============================================================================
@@ -206,7 +247,7 @@ ok ".env written"
 # --- DNS via Cloudflare -------------------------------------------------------
 if $DNS_VIA_CF; then
     step "Creating DNS A records via Cloudflare"
-    for sub in auth files term stats; do
+    for sub in auth files term mterm stats home; do
         fqdn="${sub}.${DOMAIN}"
         info "Upserting ${fqdn} → ${PUBLIC_IP}"
         # Look up existing record
@@ -228,7 +269,7 @@ if $DNS_VIA_CF; then
     done
 else
     info "Skipping DNS automation. Make sure these A records exist:"
-    for sub in auth files term stats; do
+    for sub in auth files term mterm stats home; do
         info "  ${sub}.${DOMAIN}  →  <your VPS public IP>"
     done
 fi
@@ -239,13 +280,45 @@ if $SETUP_UFW; then
     SUDO=""; [[ $EUID -eq 0 ]] || SUDO="sudo"
     $SUDO ufw default deny incoming || true
     $SUDO ufw default allow outgoing || true
-    $SUDO ufw allow 22/tcp comment 'SSH' || true
+    $SUDO ufw allow "${SSH_PORT}/tcp" comment 'SSH' || true
     $SUDO ufw allow 80/tcp comment 'HTTP (Caddy / ACME)' || true
     $SUDO ufw allow 443/tcp comment 'HTTPS (Caddy)' || true
     $SUDO ufw allow 443/udp comment 'HTTP/3 QUIC' || true
     yes | $SUDO ufw enable >/dev/null 2>&1 || true
     ok "UFW active. Rules:"
     $SUDO ufw status numbered | sed 's/^/      /'
+fi
+
+# --- fail2ban ----------------------------------------------------------------
+if $SETUP_FAIL2BAN; then
+    step "Installing fail2ban"
+    F2B_SUDO=""; [[ $EUID -eq 0 ]] || F2B_SUDO="sudo"
+    if ! command -v fail2ban-client >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1; then
+            $F2B_SUDO apt-get update -qq && $F2B_SUDO apt-get install -y -qq fail2ban || warn "apt install failed"
+        else
+            warn "apt-get not available; install fail2ban manually."
+        fi
+    fi
+    if command -v fail2ban-client >/dev/null 2>&1; then
+        # Minimal jail.local enabling sshd jail with sane defaults; idempotent.
+        JAIL=/etc/fail2ban/jail.local
+        if [[ ! -f "$JAIL" ]] || ! grep -q '^\[sshd\]' "$JAIL"; then
+            $F2B_SUDO tee "$JAIL" >/dev/null <<'EOF'
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = systemd
+
+[sshd]
+enabled = true
+EOF
+        fi
+        $F2B_SUDO systemctl enable --now fail2ban >/dev/null 2>&1 || true
+        $F2B_SUDO systemctl restart fail2ban >/dev/null 2>&1 || true
+        ok "fail2ban active (jail: sshd)"
+    fi
 fi
 
 # --- Authelia secrets ---------------------------------------------------------
@@ -287,7 +360,7 @@ if command -v dig >/dev/null 2>&1; then
         warn "Could not detect public IP; skipping strict check."
     fi
     deadline=$((SECONDS + 600))   # 10 min max
-    for sub in auth files term stats; do
+    for sub in auth files term mterm stats home; do
         fqdn="${sub}.${DOMAIN}"
         info "Waiting for ${fqdn}…"
         while :; do
@@ -362,7 +435,7 @@ fi
 echo ""
 echo "${BOLD}${GREEN}Setup complete.${RESET}"
 echo ""
-info "Open ${BOLD}https://files.${DOMAIN}${RESET}"
+info "Open ${BOLD}https://home.${DOMAIN}${RESET}  ← dashboard with links to every service"
 info "Log in as ${BOLD}${AU_USERNAME}${RESET} and enroll TOTP on first login."
 info "Useful commands:"
 info "  docker compose ps"
