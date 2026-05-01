@@ -4,7 +4,7 @@
 
 This repository is a working Docker Compose stack you can clone, configure, and deploy on any reasonably-sized VPS — a homelab where every useful thing is reachable from a browser, behind a real authentication gate, on a server you fully control.
 
-The stack is small on purpose: six containers, one network, one Caddyfile.
+The stack is small on purpose: seven containers, one network, one Caddyfile.
 
 ---
 
@@ -87,6 +87,7 @@ Set:
 - `DOMAIN` — e.g. `lab.example.com`. Your subdomains will be `auth.lab.example.com`, `files.lab.example.com`, etc.
 - `TZ` — your timezone, e.g. `Europe/Rome`.
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests. Leave empty if you'll skip Telegram for now.
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_SENDER` — used by Authelia to deliver the TOTP enrollment email. Defaults target [Resend](https://resend.com); leave `SMTP_HOST` empty to fall back to the filesystem notifier (codes readable with `docker compose exec authelia cat /config/notification.txt`). On Hetzner port `465` is often blocked outbound — use `587` if you see timeouts.
 
 ### 3. Create the four DNS A records
 
@@ -138,7 +139,17 @@ The Authelia config lives as a template at `authelia/configuration.yml.template`
 
 This produces `authelia/configuration.yml` (gitignored). Re-run any time you change `DOMAIN` in `.env`.
 
-### 7. Start the stack
+### 7. Prepare the shared data directory
+
+Filestash and Zellij both bind-mount `/srv` from the host. Filestash runs as root inside its container, Zellij runs as UID 1000 (`lab`). Without aligning ownership, files written by one are unwritable from the other.
+
+```bash
+sudo mkdir -p /srv
+sudo chown 1000:1000 /srv
+sudo chmod 2775 /srv          # group-write + setgid so new files inherit the group
+```
+
+### 8. Start the stack
 
 ```bash
 docker compose up -d
@@ -152,9 +163,9 @@ Verify everything is up:
 docker compose ps
 ```
 
-All six services should show `running` or `healthy`.
+All seven services should show `running` or `healthy`.
 
-### 8. First login + TOTP enrollment
+### 9. First login + TOTP enrollment
 
 Open `https://files.lab.example.com` in your browser. You should be redirected to Authelia (`auth.lab.example.com`). Log in with the username and password you set.
 
@@ -162,7 +173,7 @@ After password authentication, Authelia will prompt you to set up a second facto
 
 You're now fully enrolled. From this point on, every login requires password + TOTP code.
 
-### 9. Generate a Zellij web token
+### 10. Generate a Zellij web token
 
 Zellij's web client requires its own token in addition to Authelia. Generate one inside the Zellij container:
 
@@ -172,7 +183,9 @@ docker compose exec zellij zellij web --create-token
 
 Copy the token. The first time you visit `term.lab.example.com` (after authenticating via Authelia), Zellij will ask for this token. Paste it. The token is stored as a hash; it never gets logged in plaintext.
 
-### 10. (Optional) Verify Telegram notifications
+The token is persisted in the `zellij_cache` named volume, so it survives container rebuilds. To force a fresh token, remove the volume: `docker compose down && docker volume rm mojalab-vps-stack_zellij_cache`.
+
+### 11. (Optional) Verify Telegram notifications
 
 Watchtower runs its first check at 5 AM UTC the next day. To verify the Telegram setup works *now*, send a test notification:
 
