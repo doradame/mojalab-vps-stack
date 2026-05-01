@@ -85,7 +85,7 @@ services:
     container_name: filestash
     restart: unless-stopped
     environment:
-      - APPLICATION_URL=https://files.${DOMAIN}
+      - APPLICATION_URL=files.${DOMAIN}
       - TZ=${TZ:-Europe/Rome}
     volumes:
       - filestash_data:/app/data/state
