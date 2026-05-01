@@ -309,6 +309,18 @@ else
     warn "dig not available; skipping DNS check."
 fi
 
+# --- Shared data dir ----------------------------------------------------------
+# /srv is bind-mounted into both Filestash (as root) and Zellij (as UID 1000
+# 'lab'). Without this step, files created by one are unwritable from the
+# other. Make /srv owned by 1000:1000 with group-write + setgid so new files
+# inherit the group.
+step "Preparing /srv (shared Filestash + Zellij data dir)"
+SRV_SUDO=""; [[ $EUID -eq 0 ]] || SRV_SUDO="sudo"
+$SRV_SUDO mkdir -p /srv
+$SRV_SUDO chown 1000:1000 /srv
+$SRV_SUDO chmod 2775 /srv
+ok "/srv is owned by 1000:1000 with mode 2775"
+
 # --- Bring up the stack -------------------------------------------------------
 step "Starting the stack"
 docker compose pull
