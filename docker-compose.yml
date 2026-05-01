@@ -116,6 +116,7 @@ services:
       - TZ=${TZ:-Europe/Rome}
     volumes:
       - zellij_config:/home/lab/.config/zellij
+      - zellij_cache:/home/lab/.cache/zellij    # web tokens live here — persist across rebuilds
       - /srv:/srv:rw            # Same /srv mount as Filestash, so terminal and
                                  # file manager see the same tree
     networks:
@@ -229,3 +230,4 @@ volumes:
   caddy_config:
   filestash_data:
   zellij_config:
+  zellij_cache:
