@@ -162,29 +162,34 @@ authelia_tail() {
             curl -fsSN --max-time 0 "$url" 2>/dev/null \
                 | tr -cd '\11\12\15\40-\176' \
                 | while IFS= read -r line; do
-                    # Authelia logs JSON when log.format=json. Try jq first;
-                    # fall back to grep if the line is not JSON.
-                    msg=""; user=""; ip=""; method=""
+                    [[ -z "$line" ]] && continue
+                    msg=""; user=""; ip=""
+                    # Try JSON first.
                     if printf '%s' "$line" | jq -e . >/dev/null 2>&1; then
                         msg=$(jq -r '.msg // .message // empty' <<<"$line")
                         user=$(jq -r '.username // .user // empty' <<<"$line")
                         ip=$(jq -r '.remote_ip // .ip // empty' <<<"$line")
-                        method=$(jq -r '.method // empty' <<<"$line")
                     else
-                        msg="$line"
+                        # Fall back to logfmt:  key="value with spaces" key=value
+                        msg=$(sed -n 's/.*msg="\([^"]*\)".*/\1/p' <<<"$line")
+                        user=$(sed -n 's/.*username="\{0,1\}\([^" ]*\)"\{0,1\}.*/\1/p' <<<"$line")
+                        ip=$(sed -n 's/.*remote_ip="\{0,1\}\([^" ]*\)"\{0,1\}.*/\1/p' <<<"$line")
                     fi
+                    [[ -z "$msg" ]] && continue
+                    # Debug:
+                    # log "authelia: msg='$msg' user='$user' ip='$ip'"
                     case "$msg" in
-                        *"Successful 1FA"*|*"successful 1FA"*)
+                        *uccessful*1FA*|*1FA*uccessful*|*assword*orrect*|*Authentication*succeeded*)
                             send "🔓 *Authelia 1FA login*
 user: \`${user:-?}\`
 from: \`${ip:-?}\`"
                             ;;
-                        *"Successful 2FA"*|*"successful 2FA"*)
+                        *uccessful*2FA*|*2FA*uccessful*|*TOTP*alid*|*Webauthn*uccessful*)
                             send "🔐 *Authelia 2FA login*
 user: \`${user:-?}\`
 from: \`${ip:-?}\`"
                             ;;
-                        *"Unsuccessful 1FA"*|*"failed 1FA"*|*"authentication attempt"*"failed"*)
+                        *nsuccessful*|*ailed*authentication*|*nvalid*credentials*|*ncorrect*password*)
                             if should_fire "authelia_fail"; then
                                 send "⚠️ *Authelia login failed*
 user: \`${user:-?}\`  from: \`${ip:-?}\`
