@@ -163,40 +163,59 @@ authelia_tail() {
                 | tr -cd '\11\12\15\40-\176' \
                 | while IFS= read -r line; do
                     [[ -z "$line" ]] && continue
-                    msg=""; user=""; ip=""
-                    # Try JSON first.
+
+                    # Extract fields from logfmt or JSON.
+                    msg=""; user=""; ip=""; path=""; level=""
                     if printf '%s' "$line" | jq -e . >/dev/null 2>&1; then
-                        msg=$(jq -r '.msg // .message // empty' <<<"$line")
+                        msg=$(jq -r '.msg // .message // empty'   <<<"$line")
                         user=$(jq -r '.username // .user // empty' <<<"$line")
-                        ip=$(jq -r '.remote_ip // .ip // empty' <<<"$line")
+                        ip=$(jq -r '.remote_ip // .ip // empty'    <<<"$line")
+                        path=$(jq -r '.path // empty'              <<<"$line")
+                        level=$(jq -r '.level // empty'            <<<"$line")
                     else
-                        # Fall back to logfmt:  key="value with spaces" key=value
-                        msg=$(sed -n 's/.*msg="\([^"]*\)".*/\1/p' <<<"$line")
-                        user=$(sed -n 's/.*username="\{0,1\}\([^" ]*\)"\{0,1\}.*/\1/p' <<<"$line")
-                        ip=$(sed -n 's/.*remote_ip="\{0,1\}\([^" ]*\)"\{0,1\}.*/\1/p' <<<"$line")
+                        msg=$(sed -n   's/.*msg="\([^"]*\)".*/\1/p'        <<<"$line")
+                        user=$(sed -n  "s/.*user '\([^']*\)'.*/\1/p"       <<<"$line")
+                        [[ -z "$user" ]] && user=$(sed -n 's/.*to user \([^ ,]*\).*/\1/p' <<<"$line")
+                        ip=$(sed -n    's/.* remote_ip=\([^ ]*\).*/\1/p'   <<<"$line")
+                        path=$(sed -n  's/.* path=\([^ ]*\).*/\1/p'        <<<"$line")
+                        level=$(sed -n 's/.* level=\([^ ]*\).*/\1/p'       <<<"$line")
                     fi
                     [[ -z "$msg" ]] && continue
-                    # Debug:
-                    # log "authelia: msg='$msg' user='$user' ip='$ip'"
+
+                    # Failures (TOTP / 1FA) — both surface as "Unsuccessful ..."
                     case "$msg" in
-                        *uccessful*1FA*|*1FA*uccessful*|*assword*orrect*|*Authentication*succeeded*)
-                            send "🔓 *Authelia 1FA login*
-user: \`${user:-?}\`
-from: \`${ip:-?}\`"
-                            ;;
-                        *uccessful*2FA*|*2FA*uccessful*|*TOTP*alid*|*Webauthn*uccessful*)
-                            send "🔐 *Authelia 2FA login*
-user: \`${user:-?}\`
-from: \`${ip:-?}\`"
-                            ;;
-                        *nsuccessful*|*ailed*authentication*|*nvalid*credentials*|*ncorrect*password*)
+                        *Unsuccessful*|*authentication\ attempt*ail*|*nvalid\ credentials*|*ncorrect\ password*)
                             if should_fire "authelia_fail"; then
                                 send "⚠️ *Authelia login failed*
 user: \`${user:-?}\`  from: \`${ip:-?}\`
+reason: ${msg}
 (further failures muted for ${ALERT_COOLDOWN}s)"
                             fi
+                            continue
                             ;;
                     esac
+
+                    # 1FA success: password was correct, user now needs 2FA.
+                    # Authelia logs: "<url> requires 2FA, cannot be redirected yet"
+                    if [[ "$msg" == *"requires 2FA"* ]]; then
+                        if should_fire "authelia_1fa_${user:-x}_${ip:-x}"; then
+                            send "🔓 *Authelia 1FA ok* (password)
+user: \`${user:-?}\`
+from: \`${ip:-?}\`"
+                        fi
+                        continue
+                    fi
+
+                    # 2FA success: a successful POST to /api/secondfactor/* at
+                    # info level with no "Unsuccessful" earlier in the line.
+                    if [[ "$path" == /api/secondfactor/* && "$level" == "info" ]]; then
+                        if should_fire "authelia_2fa_${user:-x}_${ip:-x}"; then
+                            send "🔐 *Authelia 2FA ok*
+user: \`${user:-?}\`
+from: \`${ip:-?}\`"
+                        fi
+                        continue
+                    fi
                 done
             log "authelia log stream ended; reconnecting in 10s"
             sleep 10
