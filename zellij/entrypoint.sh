@@ -13,6 +13,15 @@
 
 set -euo pipefail
 
+# Named volumes get created owned by root the first time they're mounted.
+# Take ownership of the directories Zellij needs to write to, so the 'lab'
+# user (UID 1000) can persist its config / cache / data (web tokens live in
+# .local/share/zellij/tokens.db on Zellij 0.44+).
+for d in /home/lab/.config/zellij /home/lab/.cache/zellij /home/lab/.local/share/zellij; do
+    sudo mkdir -p "$d"
+    sudo chown -R lab:lab "$d"
+done
+
 mkdir -p /home/lab/.config/zellij
 
 echo "Starting Zellij web server on 127.0.0.1:8083 (socat bridges 0.0.0.0:8082 -> 127.0.0.1:8083)..."
