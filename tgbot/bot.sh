@@ -112,6 +112,7 @@ mem threshold  : ${ALERT_MEM_PCT:-90}%
 load threshold : ${ALERT_LOAD:-0} (0=off)
 heartbeat      : every ${HEARTBEAT_HOURS:-3}h (0=off)
 SSH logins     : ${ALERT_SSH:-1} (1=on)
+Authelia       : ${ALERT_AUTHELIA:-1} (1=on)
 cooldown       : ${ALERT_COOLDOWN:-3600}s
 status         : ${mute_status}
 EOF

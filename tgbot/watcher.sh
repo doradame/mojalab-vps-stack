@@ -16,6 +16,8 @@ ALERT_MEM_PCT="${ALERT_MEM_PCT:-90}"       # RAM usage threshold
 ALERT_LOAD="${ALERT_LOAD:-0}"              # 1-min load avg (0 = off)
 HEARTBEAT_HOURS="${HEARTBEAT_HOURS:-3}"    # 0 = no heartbeat
 ALERT_SSH="${ALERT_SSH:-1}"                # 1 = tail /var/log/auth.log if mounted
+ALERT_AUTHELIA="${ALERT_AUTHELIA:-1}"      # 1 = stream authelia logs via dockerproxy
+DOCKER_HOST="${DOCKER_HOST:-tcp://dockerproxy:2375}"
 WATCH_INTERVAL="${WATCH_INTERVAL:-60}"     # seconds between resource checks
 ALERT_COOLDOWN="${ALERT_COOLDOWN:-3600}"   # seconds between repeats of same alert
 
@@ -143,6 +145,60 @@ method: ${method}"
     done &
 }
 
+# --- Watcher: Authelia web logins -------------------------------------------
+# Streams the authelia container's stdout/stderr through dockerproxy (LOGS=1)
+# and alerts on successful 1FA / 2FA authentication events. No socket mount
+# required: tgbot only ever sees the proxied, read-only Docker API.
+authelia_tail() {
+    [[ "$ALERT_AUTHELIA" == "1" ]] || return 0
+    local host="${DOCKER_HOST#tcp://}"
+    local url="http://${host}/containers/authelia/logs?follow=1&stdout=1&stderr=1&tail=0&timestamps=0"
+    log "tailing authelia logs via ${host}"
+    (
+        # The Docker logs stream is multiplexed binary frames (8-byte header
+        # then payload). Strip non-printables with `tr` so jq/grep see clean
+        # text. Auto-reconnect on disconnect.
+        while :; do
+            curl -fsSN --max-time 0 "$url" 2>/dev/null \
+                | tr -cd '\11\12\15\40-\176' \
+                | while IFS= read -r line; do
+                    # Authelia logs JSON when log.format=json. Try jq first;
+                    # fall back to grep if the line is not JSON.
+                    msg=""; user=""; ip=""; method=""
+                    if printf '%s' "$line" | jq -e . >/dev/null 2>&1; then
+                        msg=$(jq -r '.msg // .message // empty' <<<"$line")
+                        user=$(jq -r '.username // .user // empty' <<<"$line")
+                        ip=$(jq -r '.remote_ip // .ip // empty' <<<"$line")
+                        method=$(jq -r '.method // empty' <<<"$line")
+                    else
+                        msg="$line"
+                    fi
+                    case "$msg" in
+                        *"Successful 1FA"*|*"successful 1FA"*)
+                            send "🔓 *Authelia 1FA login*
+user: \`${user:-?}\`
+from: \`${ip:-?}\`"
+                            ;;
+                        *"Successful 2FA"*|*"successful 2FA"*)
+                            send "🔐 *Authelia 2FA login*
+user: \`${user:-?}\`
+from: \`${ip:-?}\`"
+                            ;;
+                        *"Unsuccessful 1FA"*|*"failed 1FA"*|*"authentication attempt"*"failed"*)
+                            if should_fire "authelia_fail"; then
+                                send "⚠️ *Authelia login failed*
+user: \`${user:-?}\`  from: \`${ip:-?}\`
+(further failures muted for ${ALERT_COOLDOWN}s)"
+                            fi
+                            ;;
+                    esac
+                done
+            log "authelia log stream ended; reconnecting in 10s"
+            sleep 10
+        done
+    ) &
+}
+
 # --- Watcher: heartbeat ------------------------------------------------------
 heartbeat_loop() {
     (( HEARTBEAT_HOURS > 0 )) || return 0
@@ -171,8 +227,9 @@ poll_loop() {
 }
 
 # --- Main --------------------------------------------------------------------
-log "watcher starting (disk>=${ALERT_DISK_PCT}% mem>=${ALERT_MEM_PCT}% load>=${ALERT_LOAD} hb=${HEARTBEAT_HOURS}h ssh=${ALERT_SSH})"
+log "watcher starting (disk>=${ALERT_DISK_PCT}% mem>=${ALERT_MEM_PCT}% load>=${ALERT_LOAD} hb=${HEARTBEAT_HOURS}h ssh=${ALERT_SSH} authelia=${ALERT_AUTHELIA})"
 ssh_tail
+authelia_tail
 heartbeat_loop
 poll_loop
 wait

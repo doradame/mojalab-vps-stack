@@ -190,6 +190,7 @@ services:
       - INFO=1
       - VERSION=1
       - PING=1
+      - LOGS=1       # tgbot tails authelia logs to alert on web logins
       - POST=0       # Deny any write/exec/start/stop call
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -309,6 +310,8 @@ services:
       - ALERT_LOAD=${ALERT_LOAD:-0}
       - HEARTBEAT_HOURS=${HEARTBEAT_HOURS:-3}
       - ALERT_SSH=${ALERT_SSH:-1}
+      - ALERT_AUTHELIA=${ALERT_AUTHELIA:-1}
+      - DOCKER_HOST=tcp://dockerproxy:2375
       - ALERT_COOLDOWN=${ALERT_COOLDOWN:-3600}
     volumes:
       # Read-only host logs so the watcher can detect SSH logins.
@@ -320,6 +323,7 @@ services:
       - lab
     depends_on:
       - glances
+      - dockerproxy
     read_only: true
     cap_drop:
       - ALL
