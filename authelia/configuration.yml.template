@@ -65,8 +65,10 @@ access_control:
 
     # All protected subdomains require 2FA
     - domain:
+        - 'home.${DOMAIN}'
         - 'files.${DOMAIN}'
         - 'term.${DOMAIN}'
+        - 'mterm.${DOMAIN}'
         - 'stats.${DOMAIN}'
       policy: 'two_factor'
       subject: 'group:admins'
@@ -83,7 +85,7 @@ session:
   cookies:
     - domain: '${DOMAIN}'
       authelia_url: 'https://auth.${DOMAIN}'
-      default_redirection_url: 'https://files.${DOMAIN}'
+      default_redirection_url: 'https://home.${DOMAIN}'
 
 # ----------------------------------------------------------------------------
 # Regulation — basic brute-force protection
