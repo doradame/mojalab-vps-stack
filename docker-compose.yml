@@ -69,6 +69,10 @@ services:
     image: authelia/authelia:4
     container_name: authelia
     restart: unless-stopped
+    # tty:true makes the Docker logs API emit a plain (non-multiplexed) stream
+    # so tgbot can tail it line-by-line via dockerproxy. Authelia's stdout is
+    # text-only logfmt, so this has no other side effect.
+    tty: true
     volumes:
       - ./authelia:/config
     environment:

@@ -160,7 +160,6 @@ authelia_tail() {
         # text. Auto-reconnect on disconnect.
         while :; do
             curl -fsSN --max-time 0 "$url" 2>/dev/null \
-                | tr -cd '\11\12\15\40-\176' \
                 | while IFS= read -r line; do
                     [[ -z "$line" ]] && continue
 
