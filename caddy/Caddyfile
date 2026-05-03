@@ -85,7 +85,16 @@ term.{$DOMAIN} {
 mterm.{$DOMAIN} {
     import security_headers
     import authelia_forward
-    reverse_proxy wetty:3000
+    # Strip the Remote-* headers Authelia injects: wetty would otherwise
+    # interpret Remote-User as the SSH username and override --ssh-user=lab,
+    # causing "Permission denied (publickey)" because that user doesn't exist
+    # in the zellij container.
+    reverse_proxy wetty:3000 {
+        header_up -Remote-User
+        header_up -Remote-Groups
+        header_up -Remote-Name
+        header_up -Remote-Email
+    }
 }
 
 # ----------------------------------------------------------------------------
