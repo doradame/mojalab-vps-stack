@@ -181,8 +181,8 @@ authelia_tail() {
                     fi
                     [[ -z "$msg" ]] && continue
 
-                    # Debug: log every parsed authelia event so we can tune patterns.
-                    log "authelia: level='$level' path='$path' user='$user' ip='$ip' msg='$msg'"
+                    # Uncomment to debug pattern matching:
+                    # log "authelia: level='$level' path='$path' user='$user' ip='$ip' msg='$msg'"
 
                     # Failures (TOTP / 1FA) — both surface as "Unsuccessful ..."
                     case "$msg" in

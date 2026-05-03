@@ -7,6 +7,14 @@ case $- in
       *) return;;
 esac
 
+# ---- Auto-attach to shared zellij session for SSH/wetty logins ------------
+# When ssh'ing in (e.g. from wetty on phone), drop straight into the same
+# multiplexed session that term.{$DOMAIN} uses. This is what makes the mobile
+# web terminal show the *same* panes as the desktop one.
+if [[ -n "${SSH_CONNECTION:-}" && -z "${ZELLIJ:-}" ]] && command -v zellij >/dev/null 2>&1; then
+    exec zellij attach -c main
+fi
+
 # ---- History ---------------------------------------------------------------
 HISTSIZE=10000
 HISTFILESIZE=20000
@@ -68,6 +76,27 @@ alias gco='git checkout'
 alias rm='rm -i'
 alias cp='cp -i'
 alias mv='mv -i'
+
+# ---- Dev environment -------------------------------------------------------
+# Python user-installs and node global installs live under ~/.local, which is
+# a persistent volume → survives container rebuilds.
+export PIP_BREAK_SYSTEM_PACKAGES=1
+export PIP_USER=1
+export PYTHONUSERBASE="$HOME/.local"
+export PIPX_HOME="$HOME/.local/pipx"
+export PIPX_BIN_DIR="$HOME/.local/bin"
+export NPM_CONFIG_PREFIX="$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+
+# Persistent bash history across container rebuilds.
+export HISTFILE="$HOME/.local/share/bash/history"
+mkdir -p "$(dirname "$HISTFILE")" 2>/dev/null
+
+# Debian renames fd → fdfind; alias it back.
+command -v fdfind >/dev/null && alias fd='fdfind'
+
+# Load API keys & user secrets if present (file lives in persistent volume).
+[[ -f "$HOME/.local/share/secrets.env" ]] && . "$HOME/.local/share/secrets.env"
 
 # ---- Prompt ----------------------------------------------------------------
 # Two-line PS1 with git branch (if available), colors that survive a black or

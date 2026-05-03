@@ -389,10 +389,21 @@ fi
 # inherit the group.
 step "Preparing /srv (shared Filestash + Zellij data dir)"
 SRV_SUDO=""; [[ $EUID -eq 0 ]] || SRV_SUDO="sudo"
-$SRV_SUDO mkdir -p /srv
-$SRV_SUDO chown 1000:1000 /srv
-$SRV_SUDO chmod 2775 /srv
+$SRV_SUDO mkdir -p /srv /srv/workspace
+$SRV_SUDO chown 1000:1000 /srv /srv/workspace
+$SRV_SUDO chmod 2775 /srv /srv/workspace
 ok "/srv is owned by 1000:1000 with mode 2775"
+
+# --- Lab user state dirs (bind-mounted into the zellij container) -------------
+# These hold pip/npm globals, ~/.config, Claude Code creds, npm cache.
+# Kept OUT of /srv on purpose: Filestash exposes /srv on the web, and we don't
+# want auth tokens / API keys to be browseable from the file manager.
+step "Preparing /var/lib/mojalab/lab (dev user state)"
+LAB_STATE="${LAB_STATE_DIR:-/var/lib/mojalab/lab}"
+$SRV_SUDO mkdir -p "$LAB_STATE"/{local,config,claude,npm}
+$SRV_SUDO chown -R 1000:1000 "$LAB_STATE"
+$SRV_SUDO chmod 700 "$LAB_STATE/claude"   # extra-tight on auth state
+ok "$LAB_STATE prepared (owned by UID 1000)"
 
 # --- Bring up the stack -------------------------------------------------------
 step "Starting the stack"

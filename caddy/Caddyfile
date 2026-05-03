@@ -78,13 +78,14 @@ term.{$DOMAIN} {
 }
 
 # ----------------------------------------------------------------------------
-# Mobile-friendly terminal (ttyd) — auto-attaches to the SAME zellij session
-# as term.{$DOMAIN}. Use this from your phone; Caddy handles the websocket.
+# Mobile-friendly terminal (wetty) — SSHs into the zellij container as 'lab'
+# and auto-attaches to the SAME zellij session as term.{$DOMAIN}. Caddy
+# proxies the WebSocket transparently.
 # ----------------------------------------------------------------------------
 mterm.{$DOMAIN} {
     import security_headers
     import authelia_forward
-    reverse_proxy zellij:7681
+    reverse_proxy wetty:3000
 }
 
 # ----------------------------------------------------------------------------

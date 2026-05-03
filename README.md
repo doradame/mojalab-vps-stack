@@ -17,7 +17,7 @@ The stack is small on purpose: seven containers, one network, one Caddyfile.
 | **Home** | Landing page with links to every service | `home.{your-domain}` |
 | **Filestash** | Web file manager | `files.{your-domain}` |
 | **Zellij** | Persistent web terminal (desktop) | `term.{your-domain}` |
-| **ttyd** | Mobile-friendly terminal, attaches to same Zellij session | `mterm.{your-domain}` |
+| **wetty** | Mobile-friendly terminal (web SSH), attaches to same Zellij session | `mterm.{your-domain}` |
 | **Glances** | System metrics dashboard | `stats.{your-domain}` |
 | **Watchtower** | Update notifications (monitor-only) | _Telegram bot_ |
 | **dockerproxy** | Read-only Docker socket for Watchtower & Glances | _internal_ |
@@ -189,7 +189,7 @@ Copy the token. The first time you visit `term.lab.example.com` (after authentic
 
 The token is persisted in the `zellij_cache` named volume, so it survives container rebuilds. To force a fresh token, remove the volume: `docker compose down && docker volume rm mojalab-vps-stack_zellij_cache`.
 
-**Mobile access.** From your phone, open `mterm.lab.example.com` instead. It serves a touch-friendly terminal (ttyd) that auto-attaches to the **same** Zellij session named `main`. Whatever a desktop client is running — Claude Code, OpenCode, a long build — you see it live on the phone. No Zellij token needed there: Authelia gates the route.
+**Mobile access.** From your phone, open `mterm.lab.example.com` instead. It serves a touch-friendly web terminal (wetty) that SSHs into the Zellij container as user `lab` and auto-attaches to the **same** session named `main`. Whatever a desktop client is running — Claude Code, OpenCode, a long build — you see it live on the phone. No Zellij token needed there: Authelia gates the route, the SSH key is generated on first boot and never leaves the internal Docker network.
 
 ### 11. (Optional) Verify Telegram notifications
 

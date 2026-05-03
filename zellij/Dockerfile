@@ -15,26 +15,27 @@ FROM debian:bookworm-slim
 
 ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
-ARG TTYD_VERSION=1.7.7
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl bash bash-completion sudo procps xz-utils iproute2 socat \
-        git vim nano less htop ncdu tree jq file man-db \
+        ca-certificates curl wget gnupg bash bash-completion sudo procps xz-utils \
+        iproute2 socat openssh-server openssh-client \
+        git vim nano less htop ncdu tree jq file man-db unzip zip rsync tmux \
+        ripgrep fd-find \
+        build-essential pkg-config \
+        python3 python3-pip python3-venv python3-dev pipx \
+    && mkdir -p /run/sshd \
     && rm -rf /var/lib/apt/lists/*
 
-# ttyd is not in Debian bookworm; fetch the official static x86_64 binary.
+# Node.js 20 LTS from NodeSource (Debian's nodejs is too old for modern tooling).
 RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; \
-    case "$arch" in \
-        amd64) ttyd_arch=x86_64 ;; \
-        arm64) ttyd_arch=aarch64 ;; \
-        armhf) ttyd_arch=armhf ;; \
-        *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" \
-        -o /usr/local/bin/ttyd; \
-    chmod +x /usr/local/bin/ttyd; \
-    /usr/local/bin/ttyd --version
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*
+
+# Claude Code CLI (Anthropic). Installed system-wide so it survives rebuilds;
+# user state lives in ~/.claude (persistent volume).
+RUN npm install -g @anthropic-ai/claude-code || \
+    echo "claude-code install failed (non-fatal, install manually with: npm i -g @anthropic-ai/claude-code)"
 
 # Install Zellij from official binary release, optionally verifying the SHA256.
 RUN set -eux; \
@@ -64,7 +65,14 @@ WORKDIR /home/lab
 ENV SHELL=/bin/bash \
     TERM=xterm-256color \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_USER=1 \
+    PYTHONUSERBASE=/home/lab/.local \
+    PIPX_HOME=/home/lab/.local/pipx \
+    PIPX_BIN_DIR=/home/lab/.local/bin \
+    NPM_CONFIG_PREFIX=/home/lab/.local \
+    PATH=/home/lab/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Copy entrypoint that starts the Zellij web server
 COPY --chown=lab:lab entrypoint.sh /home/lab/entrypoint.sh
@@ -77,6 +85,6 @@ RUN printf '%s\n' \
         "[ -f ~/.bashrc ] && . ~/.bashrc" > /home/lab/.bash_profile \
     && chown lab:lab /home/lab/.bash_profile
 
-EXPOSE 8082 7681
+EXPOSE 8082 22
 
 ENTRYPOINT ["/home/lab/entrypoint.sh"]

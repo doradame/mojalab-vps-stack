@@ -150,16 +150,29 @@ services:
     environment:
       - TZ=${TZ:-Europe/Rome}
     volumes:
+      # --- System state (named volumes, hidden from host browsing) -------
       - zellij_config:/home/lab/.config/zellij
       - zellij_cache:/home/lab/.cache/zellij    # web tokens (older zellij)
       - zellij_data:/home/lab/.local/share/zellij  # web tokens (zellij 0.44+)
+      - wetty_keys:/ssh-keys                    # shared with wetty (RW here)
+
+      # --- Dev user state (bind mounts on host, easy backup, OUT of /srv
+      #     so Filestash CANNOT see your secrets/credentials) -------------
+      - ${LAB_STATE_DIR:-/var/lib/mojalab/lab}/local:/home/lab/.local       # pip --user, npm globals, ~/.local/bin, secrets.env
+      - ${LAB_STATE_DIR:-/var/lib/mojalab/lab}/config:/home/lab/.config     # opencode, gh, git, XDG configs
+      - ${LAB_STATE_DIR:-/var/lib/mojalab/lab}/claude:/home/lab/.claude     # Claude Code auth + state
+      - ${LAB_STATE_DIR:-/var/lib/mojalab/lab}/npm:/home/lab/.npm           # npm cache
+
+      # --- Workspace under /srv so Filestash (files.${DOMAIN}) can browse,
+      #     upload, download project files from the web --------------------
+      - /srv/workspace:/home/lab/workspace
       - /srv:/srv:rw            # Same /srv mount as Filestash, so terminal and
                                  # file manager see the same tree
     networks:
       - lab
     expose:
       - 8082
-      - 7681       # ttyd — mobile-friendly terminal, attaches to same zellij session
+      - 22         # sshd — used internally by wetty for the mobile web terminal
     healthcheck:
       test: ["CMD-SHELL", "ss -ltn 'sport = :8082' | grep -q LISTEN || exit 1"]
       interval: 30s
@@ -171,6 +184,45 @@ services:
         limits:
           memory: 512M
           cpus: '1.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --------------------------------------------------------------------------
+  # wetty — mobile-friendly web terminal. Connects via SSH to the zellij
+  # sidecar over the internal 'lab' network and auto-attaches to session 'main'
+  # (handled by the lab user's .bashrc). Replaces ttyd, which ate keystrokes
+  # on phones because of textarea autocorrect.
+  # --------------------------------------------------------------------------
+  wetty:
+    build:
+      context: ./wetty
+      dockerfile: Dockerfile
+    container_name: wetty
+    restart: unless-stopped
+    command:
+      - "--ssh-host=zellij"
+      - "--ssh-port=22"
+      - "--ssh-user=lab"
+      - "--ssh-auth=publickey"
+      - "--ssh-key=/ssh-keys/wetty_id_ed25519"
+      - "--base=/"
+      - "--port=3000"
+    volumes:
+      - wetty_keys:/ssh-keys:ro
+    networks:
+      - lab
+    expose:
+      - 3000
+    depends_on:
+      - zellij
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
     logging:
       driver: json-file
       options:
@@ -359,3 +411,4 @@ volumes:
   zellij_config:
   zellij_cache:
   zellij_data:
+  wetty_keys:
