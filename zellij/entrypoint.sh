@@ -66,7 +66,7 @@ PubkeyAuthentication yes
 AllowUsers lab
 UseDNS no
 PrintMotd no
-AcceptEnv LANG LC_*
+AcceptEnv LANG LC_* TERM
 EOF
 
 # --- Wetty SSH key -----------------------------------------------------------

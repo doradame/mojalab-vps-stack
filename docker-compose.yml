@@ -202,6 +202,10 @@ services:
       dockerfile: Dockerfile
     container_name: wetty
     restart: unless-stopped
+    environment:
+      - TERM=xterm-256color
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
     command:
       - "--ssh-host=zellij"
       - "--ssh-port=22"
