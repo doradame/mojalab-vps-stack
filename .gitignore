@@ -66,11 +66,22 @@ docker-compose.*.local.yml
 *.old
 *.orig
 *.tmp
+*.tmp.md
 *.tar
 *.tar.gz
 *.tgz
 *.zip
 backups/
+
+# ----------------------------------------------------------------------------
+# Working notes / scratch (keep them local, never publish)
+# ----------------------------------------------------------------------------
+temp_*
+TEMP_*
+tmp_*
+TODO_*
+NOTES_*
+SCRATCH_*
 
 # ----------------------------------------------------------------------------
 # Logs & runtime noise

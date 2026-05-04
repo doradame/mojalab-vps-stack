@@ -4,7 +4,7 @@
 
 This repository is a working Docker Compose stack you can clone, configure, and deploy on any reasonably-sized VPS — a homelab where every useful thing is reachable from a browser, behind a real authentication gate, on a server you fully control.
 
-The stack is small on purpose: seven containers, one network, one Caddyfile.
+The stack is small on purpose: nine containers, one network, one Caddyfile.
 
 ---
 
@@ -12,14 +12,15 @@ The stack is small on purpose: seven containers, one network, one Caddyfile.
 
 | Service | Purpose | Subdomain |
 |---|---|---|
-| **Caddy** | Reverse proxy with automatic HTTPS | _routes everything_ |
+| **Caddy** | Reverse proxy with automatic HTTPS (custom build with `replace-response` for the mobile keyboard overlay) | _routes everything_ |
 | **Authelia** | Single sign-on with TOTP 2FA | `auth.{your-domain}` |
-| **Home** | Landing page with links to every service | `home.{your-domain}` |
+| **Home** | Landing page with links to every service (served by Caddy) | `home.{your-domain}` |
 | **Filestash** | Web file manager | `files.{your-domain}` |
-| **Zellij** | Persistent web terminal (desktop) | `term.{your-domain}` |
-| **wetty** | Mobile-friendly terminal (web SSH), attaches to same Zellij session | `mterm.{your-domain}` |
+| **Zellij** | Persistent web terminal + dev container (Node 20, Python, [Claude Code](https://github.com/anthropics/claude-code)) | `term.{your-domain}` |
+| **wetty** | Mobile-friendly terminal (web SSH) with virtual keyboard overlay, attaches to same Zellij session | `mterm.{your-domain}` |
 | **Glances** | System metrics dashboard | `stats.{your-domain}` |
-| **Watchtower** | Update notifications (monitor-only) | _Telegram bot_ |
+| **Watchtower** | Update notifications (monitor-only) | _via Telegram bot_ |
+| **tgbot** | Interactive Telegram bot: status commands + proactive alerts (disk/RAM/load, SSH/Authelia logins, heartbeat) | _Telegram_ |
 | **dockerproxy** | Read-only Docker socket for Watchtower & Glances | _internal_ |
 
 ---
@@ -91,7 +92,7 @@ Set:
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests. Leave empty if you'll skip Telegram for now.
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_SENDER` — used by Authelia to deliver the TOTP enrollment email. Defaults target [Resend](https://resend.com); leave `SMTP_HOST` empty to fall back to the filesystem notifier (codes readable with `docker compose exec authelia cat /config/notification.txt`). On Hetzner port `465` is often blocked outbound — use `587` if you see timeouts.
 
-### 3. Create the four DNS A records
+### 3. Create the six DNS A records
 
 In your DNS provider's dashboard, create:
 
@@ -131,7 +132,7 @@ cp authelia/users_database.yml.example authelia/users_database.yml
 vim authelia/users_database.yml
 ```
 
-Paste the hash you just generated, change the username from `doradame` to whatever you want, and update the email.
+Paste the hash you just generated, set your username and email.
 
 ### 6. Render the Authelia configuration with your domain
 
@@ -143,15 +144,26 @@ The Authelia config lives as a template at `authelia/configuration.yml.template`
 
 This produces `authelia/configuration.yml` (gitignored). Re-run any time you change `DOMAIN` in `.env`.
 
-### 7. Prepare the shared data directory
+### 7. Prepare the shared data directory and lab state dir
 
-Filestash and Zellij both bind-mount `/srv` from the host. Filestash runs as root inside its container, Zellij runs as UID 1000 (`lab`). Without aligning ownership, files written by one are unwritable from the other.
+The stack uses **two** host directories:
+
+- **`/srv`** — public workspace, mounted into Filestash *and* Zellij. Anything you put here is browseable from the file manager and editable from the terminal.
+- **`/var/lib/mojalab/lab`** (override with `LAB_STATE_DIR` in `.env`) — private dev state for the `lab` user inside the Zellij container: pip `--user` installs, npm globals, `~/.config`, Claude Code auth, npm cache, `secrets.env` (API keys). Kept **out of `/srv` on purpose** so Filestash cannot expose your credentials to the web.
+
+Create them with the right ownership (UID 1000 = `lab` inside the container):
 
 ```bash
 sudo mkdir -p /srv
 sudo chown 1000:1000 /srv
 sudo chmod 2775 /srv          # group-write + setgid so new files inherit the group
+
+sudo mkdir -p /var/lib/mojalab/lab/{local,config,claude,npm}
+sudo chown -R 1000:1000 /var/lib/mojalab/lab
+sudo chmod 700 /var/lib/mojalab/lab/claude
 ```
+
+(The interactive `./scripts/install.sh` does all of this for you.)
 
 ### 8. Start the stack
 
@@ -159,7 +171,7 @@ sudo chmod 2775 /srv          # group-write + setgid so new files inherit the gr
 docker compose up -d
 ```
 
-The first start takes 2–3 minutes. Caddy will request TLS certificates from Let's Encrypt for all four subdomains. If anything fails at this stage, see **Troubleshooting** below.
+The first start takes 3–5 minutes. Caddy is built locally (multi-stage `xcaddy` build to add the `replace-response` module) and then requests TLS certificates from Let's Encrypt for all six subdomains. If anything fails at this stage, see **Troubleshooting** below.
 
 Verify everything is up:
 
@@ -167,7 +179,7 @@ Verify everything is up:
 docker compose ps
 ```
 
-All seven services should show `running` or `healthy`.
+All services should show `running` or `healthy`.
 
 ### 9. First login + TOTP enrollment
 
@@ -191,6 +203,21 @@ The token is persisted in the `zellij_cache` named volume, so it survives contai
 
 **Mobile access.** From your phone, open `mterm.lab.example.com` instead. It serves a touch-friendly web terminal (wetty) that SSHs into the Zellij container as user `lab` and auto-attaches to the **same** session named `main`. Whatever a desktop client is running — Claude Code, OpenCode, a long build — you see it live on the phone. No Zellij token needed there: Authelia gates the route, the SSH key is generated on first boot and never leaves the internal Docker network.
 
+A virtual keyboard overlay sits at the bottom of the wetty page on touch devices: arrows, Tab, Esc, sticky **Ctrl/Alt** (tap = single-shot, long-press = lock), and three swipeable key sets — **zellij** (pane/tab shortcuts), **vim** (motions, save/quit), **F1–F12**. Swipe left/right on the overlay to cycle sets. See [Mobile keyboard overlay](#mobile-keyboard-overlay) below for details.
+
+### Dev container (Node, Python, Claude Code)
+
+The Zellij container is also a ready-to-use development environment:
+
+- **Node 20** + global npm prefix at `~/.local` (so `npm install -g` works without sudo)
+- **Python 3** + `pipx` (`PIP_USER=1`, `PYTHONUSERBASE=~/.local`)
+- **[Claude Code](https://github.com/anthropics/claude-code)** preinstalled (`@anthropic-ai/claude-code`)
+- **Standard tools**: `git`, `curl`, `jq`, `fd-find`, `ripgrep`, `build-essential`, `socat`
+- **API keys persist** across container rebuilds: drop `export ANTHROPIC_API_KEY=…` into `~/.local/share/secrets.env` (mode 600, sourced by `~/.bashrc`)
+- **Project workspace** at `~/workspace` → bind-mounted from the host's `/srv/workspace` (so Filestash can see the projects, but **not** the credentials)
+
+A `docker compose up -d --build zellij` rebuilds the image without losing any of the user state, because everything that matters lives in bind mounts under `${LAB_STATE_DIR}` and the named volumes for Zellij data.
+
 ### 11. (Optional) Verify Telegram notifications
 
 Watchtower runs its first check at 5 AM UTC the next day. To verify the Telegram setup works *now*, send a test notification:
@@ -201,7 +228,65 @@ docker compose exec watchtower /watchtower --run-once --debug
 
 You should receive a Telegram message within a few seconds.
 
+Then send `/ping` to your bot from Telegram — the **tgbot** service should answer immediately. Try `/help` for the full command list (see [Telegram bot](#telegram-bot) below).
+
 You're done. Open `files.lab.example.com` from your phone, your laptop, your friend's tablet — anywhere with a browser — log in once, and the workshop is yours.
+
+---
+
+## Telegram bot
+
+The **tgbot** container provides two things:
+
+### Interactive commands
+
+Send any of these to your bot from Telegram:
+
+| Command | Action |
+|---|---|
+| `/ping` | Bot alive check |
+| `/stats` | CPU, RAM, swap, load, uptime |
+| `/df` | Disk usage per filesystem |
+| `/uptime` | Uptime + load averages |
+| `/alerts` | Show alert thresholds |
+| `/mute N` | Silence proactive alerts for N minutes (default 60) |
+| `/resume` | Un-mute alerts |
+| `/help` | Command list |
+
+### Proactive alerts
+
+A background watcher pushes a Telegram message when something interesting happens. All thresholds are configurable in `.env`:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ALERT_DISK_PCT` | `85` | Warn when any filesystem reaches this % full |
+| `ALERT_MEM_PCT` | `90` | Warn when RAM usage exceeds this % |
+| `ALERT_LOAD` | `0` | Warn when 1-min load avg ≥ this integer (0 = off) |
+| `HEARTBEAT_HOURS` | `3` | Send an "all good" summary every N hours (0 = no heartbeat) |
+| `ALERT_SSH` | `1` | Alert on every successful SSH login to the host |
+| `ALERT_AUTHELIA` | `1` | Alert on every Authelia 1FA/2FA login event |
+| `ALERT_COOLDOWN` | `3600` | Seconds between repeats of the same alert |
+
+Set any to `0` to disable that watcher. Mute everything temporarily with `/mute 30`.
+
+---
+
+## Mobile keyboard overlay
+
+Mobile soft keyboards don't ship Esc, Tab, arrows, Ctrl, or function keys — exactly the keys a terminal user needs. The `mterm.{domain}` route injects a small JS/CSS overlay into the wetty page that adds them back.
+
+**How to use it:**
+
+- **Always-on row**: arrows, Esc, Tab, `~`, `|`, `/`, the set indicator, swipe affordance
+- **Sticky modifiers** — tap `Ctrl` once for single-shot (next key is sent with Ctrl, then Ctrl auto-releases). Long-press (≥0.5s) to **lock** Ctrl on until tapped off again. Same for `Alt`. Visual states: `armed` (orange pulse) and `locked` (solid red).
+- **Three key sets** (swipe left/right on the overlay to cycle, or tap the indicator):
+  - **zellij** — pane/tab/move shortcuts (`Alt+n`, `Alt+arrows`, `Ctrl+p`, `Ctrl+t`…)
+  - **vim** — `:`, `Esc`, `:w`, `:q`, `:wq`, `gg`, `G`, motions
+  - **fkeys** — `F1`–`F12`
+
+The overlay is pure vanilla JS, no framework, ~10 KB total. It's bind-mounted into Caddy at `/srv/wetty-overlay` and injected into wetty's HTML via Caddy's `replace-response` module — so wetty itself stays untouched and any future wetty release just works.
+
+Source: [`caddy/overlay/wetty-overlay.js`](./caddy/overlay/wetty-overlay.js), [`caddy/overlay/wetty-overlay.css`](./caddy/overlay/wetty-overlay.css).
 
 ---
 
@@ -248,7 +333,13 @@ The new service inherits the auth layer for free.
 
 ## Troubleshooting
 
-**Caddy can't get a certificate.** Check that the four subdomains resolve to your VPS IP (`dig +short auth.lab.example.com`). Check that ports 80 and 443 are open in your VPS firewall and not bound by anything else. Check Caddy logs: `docker compose logs caddy`.
+**Caddy can't get a certificate.** Check that the six subdomains resolve to your VPS IP (`dig +short auth.lab.example.com`). Check that ports 80 and 443 are open in your VPS firewall and not bound by anything else. Check Caddy logs: `docker compose logs caddy`.
+
+**Caddy keeps restarting after a config change.** The `mterm` block uses the `replace-response` module which is bundled into a custom Caddy image (`mojalab/caddy:replace-response`). If you edited the Caddyfile and Caddy refuses to start, run `docker compose build caddy && docker compose up -d caddy` and check `docker compose logs caddy` for the exact syntax error.
+
+**wetty shows "permission denied (publickey)" or logs in as the wrong user.** wetty SSHes into the Zellij container as `lab` using a key generated on first boot. Make sure the Caddyfile `mterm` block strips Authelia's `Remote-User` header (`header_up -Remote-User` inside the `reverse_proxy` block) — otherwise wetty tries to use *your* Authelia username as the SSH login.
+
+**Arrow keys / Ctrl / function keys don't work in wetty.** The `wetty` service must export `TERM=xterm-256color` and the Zellij container's `sshd_config` must include `AcceptEnv LANG LC_* TERM`. Both are set in this repo; verify with `docker compose exec zellij grep AcceptEnv /etc/ssh/sshd_config`.
 
 **Authelia won't start.** Most often a config typo in `configuration.yml` or missing secret files. Run `./scripts/bootstrap-secrets.sh` again (it's idempotent), and check `docker compose logs authelia`.
 
@@ -312,11 +403,20 @@ If you need any of those things, this isn't the right starting point. It's a wor
 
 ## Roadmap
 
+Done:
+
+- [x] Docker socket proxy in front of Watchtower and Glances (reduce privilege)
+- [x] Mobile-friendly web terminal (wetty + Zellij session sharing)
+- [x] Virtual keyboard overlay for wetty (sticky Ctrl/Alt, swipeable key sets, F-keys)
+- [x] Dev container in Zellij (Node 20, Python, Claude Code, persistent state)
+- [x] Bind-mount persistence under `${LAB_STATE_DIR}` (survives image rebuilds, kept out of Filestash's `/srv`)
+- [x] Custom Caddy build with `replace-response` module
+- [x] Interactive Telegram bot (status commands + proactive alerts: disk/RAM/load, SSH & Authelia logins, heartbeat, mute/resume)
+
 Ideas I might add over time, no promises:
 
 - [ ] Optional WebAuthn / hardware key support for Authelia
-- [ ] Automated backup script (Authelia DB + Caddy data → Wasabi via CryptoSync)
-- [x] Docker socket proxy in front of Watchtower and Glances (reduce privilege)
+- [ ] Automated backup script (Authelia DB + Caddy data + `${LAB_STATE_DIR}` → Wasabi via CryptoSync)
 - [ ] Optional Crowdsec integration for IP-level abuse blocking
 - [ ] OpenCode integration as a Zellij-managed service
 
