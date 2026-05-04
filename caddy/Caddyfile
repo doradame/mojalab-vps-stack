@@ -19,6 +19,11 @@
     # Email used for Let's Encrypt registration. Set ACME_EMAIL in .env.
     email {$ACME_EMAIL}
 
+    # Bind the admin API to all interfaces inside the container so the
+    # Docker healthcheck can reach it. The admin port is NOT published
+    # to the host (no entry in `ports:`), so this stays internal.
+    admin :2019
+
     # Reasonable defaults. Uncomment for staging while testing certs.
     # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
