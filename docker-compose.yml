@@ -302,7 +302,9 @@ services:
     healthcheck:
       # Use GET (not --spider/HEAD): glances' web UI is FastAPI-based and
       # rejects HEAD on /. -O /dev/null discards the body.
-      test: ["CMD-SHELL", "wget --quiet -O /dev/null http://localhost:61208/ || exit 1"]
+      # 127.0.0.1 (not localhost) — uvicorn binds 0.0.0.0 only, so the
+      # IPv6 ::1 path fails with "Connection refused".
+      test: ["CMD-SHELL", "wget --quiet -O /dev/null http://127.0.0.1:61208/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
