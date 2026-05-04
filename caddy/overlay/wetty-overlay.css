@@ -67,6 +67,25 @@
     50%      { box-shadow: 0 0 0 5px rgba(255, 170, 80, 0.15); }
 }
 
+/* Locked modifier: solid red, no animation */
+#wovl button.mod.locked {
+    background: #d8484c;
+    border-color: #ff8a8d;
+    color: #fff;
+    box-shadow: 0 0 0 2px rgba(255, 100, 100, 0.35);
+}
+
+/* Set indicator on the left */
+#wovl button.util.ind {
+    color: #9aa0b8;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    flex-grow: 0;
+    min-width: 92px;
+    border-color: rgba(255, 255, 255, 0.06);
+}
+#wovl button.util.ind:hover { color: #d6dafc; }
+
 /* Arrow keys: subtle blue */
 #wovl button.arr {
     background: #1f3050;
