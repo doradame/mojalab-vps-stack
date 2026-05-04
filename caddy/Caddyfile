@@ -112,8 +112,14 @@ mterm.{$DOMAIN} {
         # replace-response needs uncompressed upstream bodies to scan.
         request_header Accept-Encoding identity
 
-        replace stream {
-            "</body>" `<link rel="stylesheet" href="/wetty-overlay.css"><script src="/wetty-overlay.js" defer></script></body>`
+        # Buffered replace (not 'stream') so Caddy fixes Content-Length and
+        # we can match across the small wetty index.html in one shot.
+        # Multiple patterns: tolerate minified/uppercased markup. The first
+        # one that matches wins (replace runs all replacements in order).
+        replace {
+            "</body>"  `<link rel="stylesheet" href="/wetty-overlay.css"><script src="/wetty-overlay.js" defer></script></body>`
+            "</BODY>"  `<link rel="stylesheet" href="/wetty-overlay.css"><script src="/wetty-overlay.js" defer></script></BODY>`
+            "</html>"  `<link rel="stylesheet" href="/wetty-overlay.css"><script src="/wetty-overlay.js" defer></script></html>`
         }
 
         # Strip the Remote-* headers Authelia injects: wetty would otherwise
