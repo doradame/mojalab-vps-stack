@@ -117,3 +117,4 @@ Desktop.ini
 node_modules/
 __pycache__/
 *.py[cod]
+temp_specifiche.md

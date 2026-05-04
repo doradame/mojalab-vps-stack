@@ -25,7 +25,10 @@ services:
   # Caddy — the front door. Handles TLS, routing, and forward_auth checks.
   # --------------------------------------------------------------------------
   caddy:
-    image: caddy:2.8-alpine
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    image: mojalab/caddy:replace-response
     container_name: caddy
     restart: unless-stopped
     ports:
@@ -35,6 +38,7 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/home:/srv/home:ro
+      - ./caddy/overlay:/srv/wetty-overlay:ro
       - caddy_data:/data
       - caddy_config:/config
     environment:

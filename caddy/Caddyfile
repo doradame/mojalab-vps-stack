@@ -80,20 +80,52 @@ term.{$DOMAIN} {
 # ----------------------------------------------------------------------------
 # Mobile-friendly terminal (wetty) — SSHs into the zellij container as 'lab'
 # and auto-attaches to the SAME zellij session as term.{$DOMAIN}. Caddy
-# proxies the WebSocket transparently.
+# proxies the WebSocket transparently AND injects a virtual-keyboard overlay
+# (Esc, Ctrl+x, arrows, Tab) into the served HTML so the terminal is usable
+# on phones — wetty has no native virtual keyboard.
 # ----------------------------------------------------------------------------
 mterm.{$DOMAIN} {
     import security_headers
     import authelia_forward
-    # Strip the Remote-* headers Authelia injects: wetty would otherwise
-    # interpret Remote-User as the SSH username and override --ssh-user=lab,
-    # causing "Permission denied (publickey)" because that user doesn't exist
-    # in the zellij container.
-    reverse_proxy wetty:3000 {
-        header_up -Remote-User
-        header_up -Remote-Groups
-        header_up -Remote-Name
-        header_up -Remote-Email
+
+    # Serve the overlay assets locally before they ever reach wetty.
+    # 'handle_path' strips the matched prefix and short-circuits the rest.
+    handle_path /wetty-overlay.js {
+        header Content-Type "application/javascript; charset=utf-8"
+        header Cache-Control "public, max-age=300"
+        root * /srv/wetty-overlay
+        rewrite * /wetty-overlay.js
+        file_server
+    }
+    handle_path /wetty-overlay.css {
+        header Content-Type "text/css; charset=utf-8"
+        header Cache-Control "public, max-age=300"
+        root * /srv/wetty-overlay
+        rewrite * /wetty-overlay.css
+        file_server
+    }
+
+    # Everything else: reverse-proxy to wetty AND inject the overlay tags
+    # right before </body> on HTML responses. Requires the 'replace-response'
+    # module (built into our caddy via xcaddy — see caddy/Dockerfile).
+    handle {
+        # replace-response needs uncompressed upstream bodies to scan.
+        request_header Accept-Encoding identity
+
+        replace stream {
+            "</body>" `<link rel="stylesheet" href="/wetty-overlay.css"><script src="/wetty-overlay.js" defer></script></body>`
+        }
+
+        # Strip the Remote-* headers Authelia injects: wetty would otherwise
+        # interpret Remote-User as the SSH username and override --ssh-user=lab,
+        # causing "Permission denied (publickey)" because that user doesn't
+        # exist in the zellij container.
+        reverse_proxy wetty:3000 {
+            header_up -Remote-User
+            header_up -Remote-Groups
+            header_up -Remote-Name
+            header_up -Remote-Email
+        }
     }
 }
 

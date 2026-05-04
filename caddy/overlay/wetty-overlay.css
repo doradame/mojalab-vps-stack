@@ -1,0 +1,124 @@
+/* ============================================================================
+ * wetty-overlay.css — virtual keyboard overlay for mterm.{$DOMAIN}
+ * Injected into wetty's HTML by Caddy (replace-response) on mobile-friendly
+ * terminal subdomain. Pure vanilla CSS, no frameworks.
+ * ============================================================================ */
+
+#wovl {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 6px;
+    background: rgba(20, 20, 28, 0.96);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    /* avoid the iOS safe-area cutting buttons */
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.4);
+}
+
+#wovl button {
+    flex: 1 1 auto;
+    min-width: 44px;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: #2a2a36;
+    color: #e6e6f0;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.08s, transform 0.08s;
+    touch-action: manipulation;
+}
+
+#wovl button:hover { background: #353545; }
+#wovl button:active { background: #1f1f29; transform: translateY(1px); }
+
+/* Modifier keys (Ctrl+x) get a warmer accent so they stand out */
+#wovl button.mod {
+    background: #4a3320;
+    border-color: rgba(255, 170, 80, 0.25);
+    color: #ffc98f;
+}
+#wovl button.mod:hover { background: #5a3e26; }
+#wovl button.mod:active { background: #3a2818; }
+
+/* Sticky Ctrl in armed state: pulse + brighter accent */
+#wovl button.mod.armed {
+    background: #ff8c2a;
+    border-color: #ffb766;
+    color: #1a1a22;
+    box-shadow: 0 0 0 2px rgba(255, 170, 80, 0.4);
+    animation: wovl-pulse 0.9s ease-in-out infinite;
+}
+@keyframes wovl-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(255, 170, 80, 0.4); }
+    50%      { box-shadow: 0 0 0 5px rgba(255, 170, 80, 0.15); }
+}
+
+/* Arrow keys: subtle blue */
+#wovl button.arr {
+    background: #1f3050;
+    border-color: rgba(120, 170, 255, 0.25);
+    color: #a8c8ff;
+    flex-grow: 0;
+    min-width: 44px;
+}
+#wovl button.arr:hover { background: #2a3d65; }
+
+/* Hide / utility button on the right */
+#wovl button.util {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.05);
+    color: #888;
+    flex-grow: 0;
+}
+#wovl button.util:hover { background: rgba(255, 255, 255, 0.05); }
+
+/* Collapsed state: tiny pill on the right edge to bring it back */
+#wovl-show {
+    position: fixed;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    z-index: 9999;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    background: rgba(20, 20, 28, 0.85);
+    color: #e6e6f0;
+    font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+#wovl-show:active { transform: translateY(1px); }
+
+/* When the overlay is visible, leave room at the bottom of the terminal so
+   text isn't covered. xterm.js viewport sits inside .terminal */
+body.wovl-on .terminal,
+body.wovl-on .xterm-viewport,
+body.wovl-on .xterm-screen {
+    margin-bottom: 56px;
+}
+
+/* Narrow screens: smaller buttons, wrap onto two rows */
+@media (max-width: 480px) {
+    #wovl { font-size: 12px; gap: 3px; padding: 3px 4px; }
+    #wovl button { min-width: 38px; min-height: 34px; padding: 5px 7px; }
+    body.wovl-on .terminal,
+    body.wovl-on .xterm-viewport,
+    body.wovl-on .xterm-screen {
+        margin-bottom: 90px;
+    }
+}
