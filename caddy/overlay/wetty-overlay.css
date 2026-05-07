@@ -123,21 +123,78 @@
 }
 #wovl-show:active { transform: translateY(1px); }
 
-/* When the overlay is visible, leave room at the bottom of the terminal so
-   text isn't covered. xterm.js viewport sits inside .terminal */
+/* ---------------------------------------------------------------------------
+ * Mobile viewport fix.
+ *
+ * Chrome Mobile bug: xterm.js sizes the terminal using window.innerHeight at
+ * load time (when the URL bar is visible), then the URL bar collapses and a
+ * black band is left at the top of the viewport. Firefox handles dvh better.
+ *
+ * Force every container to track the *dynamic* viewport (100dvh), which
+ * shrinks/grows in lockstep with the URL bar on both Chrome and Firefox.
+ * The JS half listens to visualViewport.resize and re-dispatches window
+ * 'resize' so wetty's fit add-on recomputes rows/cols.
+ * ------------------------------------------------------------------------- */
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    overflow: hidden !important;
+}
+#terminal, .terminal, .xterm, .xterm-viewport, .xterm-screen {
+    height: 100% !important;
+    max-height: 100% !important;
+}
+
+/* Allow the xterm viewport to be panned vertically with a finger on touch
+   devices. By default xterm.js sets touch-action:none which kills scroll. */
+.xterm-viewport {
+    touch-action: pan-y !important;
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto !important;
+}
+
+/* When the overlay is visible, shrink the terminal so the bar doesn't cover
+   the prompt. We size by the dynamic viewport instead of using margin tricks
+   so xterm.js's fit add-on sees the correct height. */
+body.wovl-on,
+body.wovl-on html {
+    height: calc(100dvh - 56px) !important;
+}
+body.wovl-on #terminal,
 body.wovl-on .terminal,
+body.wovl-on .xterm,
 body.wovl-on .xterm-viewport,
 body.wovl-on .xterm-screen {
-    margin-bottom: 56px;
+    height: calc(100dvh - 56px) !important;
+    max-height: calc(100dvh - 56px) !important;
 }
 
 /* Narrow screens: smaller buttons, wrap onto two rows */
 @media (max-width: 480px) {
     #wovl { font-size: 12px; gap: 3px; padding: 3px 4px; }
     #wovl button { min-width: 38px; min-height: 34px; padding: 5px 7px; }
+    body.wovl-on,
+    body.wovl-on html {
+        height: calc(100dvh - 92px) !important;
+    }
+    body.wovl-on #terminal,
     body.wovl-on .terminal,
+    body.wovl-on .xterm,
     body.wovl-on .xterm-viewport,
     body.wovl-on .xterm-screen {
-        margin-bottom: 90px;
+        height: calc(100dvh - 92px) !important;
+        max-height: calc(100dvh - 92px) !important;
     }
 }
+
+/* Scroll buttons (PgUp/PgDn through xterm scrollback): subtle green accent */
+#wovl button.scr {
+    background: #1f3a2a;
+    border-color: rgba(120, 220, 160, 0.25);
+    color: #a8e8c0;
+    flex-grow: 0;
+    min-width: 44px;
+}
+#wovl button.scr:hover { background: #2a4d38; }

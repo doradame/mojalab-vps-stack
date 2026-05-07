@@ -153,6 +153,27 @@
 
     // ---- Input dispatch -----------------------------------------------------
     function findTA() { return document.querySelector('textarea.xterm-helper-textarea'); }
+    function findViewport() { return document.querySelector('.xterm-viewport'); }
+
+    // Scroll the xterm scrollback by N "screens" (negative = up). Works by
+    // dispatching a synthetic wheel event on the viewport, which xterm.js
+    // listens to and translates into buffer scroll.
+    function scrollScreens(direction) {
+        const vp = findViewport();
+        if (!vp) return;
+        const amount = vp.clientHeight * 0.85 * direction;
+        // Try direct scrollTop first (xterm.js syncs buffer to scroll position).
+        const before = vp.scrollTop;
+        vp.scrollTop = Math.max(0, before + amount);
+        if (vp.scrollTop === before) {
+            // Fallback: synthetic wheel event (some xterm.js versions intercept).
+            try {
+                vp.dispatchEvent(new WheelEvent('wheel', {
+                    deltaY: amount, deltaMode: 0, bubbles: true, cancelable: true,
+                }));
+            } catch (_) {}
+        }
+    }
 
     function sendSeqRaw(seq) {
         const ta = findTA();
@@ -297,6 +318,24 @@
             bar.appendChild(btn);
         }
 
+        // Scrollback navigation (works in every set; mobile-only need but
+        // harmless on desktop). PgUp/PgDn behaviour over the xterm viewport.
+        const sUp = document.createElement('button');
+        sUp.type = 'button';
+        sUp.className = 'scr';
+        sUp.textContent = '▲▲';
+        sUp.title = 'Scroll up';
+        sUp.addEventListener('pointerdown', (ev) => { ev.preventDefault(); scrollScreens(-1); });
+        bar.appendChild(sUp);
+
+        const sDn = document.createElement('button');
+        sDn.type = 'button';
+        sDn.className = 'scr';
+        sDn.textContent = '▼▼';
+        sDn.title = 'Scroll down';
+        sDn.addEventListener('pointerdown', (ev) => { ev.preventDefault(); scrollScreens(+1); });
+        bar.appendChild(sDn);
+
         // Hide button at the end
         const hide = document.createElement('button');
         hide.type = 'button';
@@ -372,6 +411,32 @@
         try { hidden = localStorage.getItem(HIDDEN_KEY) === '1'; } catch (_) {}
         setHidden(hidden);
         installModInterceptor();
+        installViewportRefit();
+    }
+
+    // Chrome Mobile collapses/expands the URL bar without firing window
+    // 'resize', so xterm.js's fit add-on never recomputes rows/cols and you
+    // end up with a black band at the top. visualViewport.resize fires
+    // reliably on both Chrome and Firefox mobile; we re-broadcast it as a
+    // window resize event so wetty refits the terminal to the real height.
+    function installViewportRefit() {
+        if (window.__wovlVPHooked) return;
+        window.__wovlVPHooked = true;
+
+        const refit = () => {
+            try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+        };
+
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', refit);
+            window.visualViewport.addEventListener('scroll', refit);
+        }
+        // Also catch orientation changes explicitly (some Chromium builds
+        // delay visualViewport resize until after the next frame).
+        window.addEventListener('orientationchange', () => setTimeout(refit, 200));
+        // Initial refit shortly after load to clear the URL-bar gap.
+        setTimeout(refit, 150);
+        setTimeout(refit, 800);
     }
 
     function ready() {
