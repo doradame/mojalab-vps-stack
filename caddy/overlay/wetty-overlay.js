@@ -155,6 +155,47 @@
     function findTA() { return document.querySelector('textarea.xterm-helper-textarea'); }
     function findViewport() { return document.querySelector('.xterm-viewport'); }
 
+    // ---- Mobile IME hardening ----------------------------------------------
+    // Mobile keyboards (iOS/Android) feed xterm's helper-textarea via IME
+    // composition + autocorrect. Symptoms:
+    //   - backspace deletes the whole composing word, not one byte
+    //   - autocapitalize/autocorrect mangles commands ("cd" -> "Cd ")
+    //   - swipe-typing inserts unexpected spaces
+    // Disabling these attributes makes the textarea behave like a raw input,
+    // which is what a terminal actually wants. Idempotent + reapplied if
+    // wetty recreates the textarea (e.g. on resize/refit).
+    function hardenTA(ta) {
+        if (!ta || ta.__wovlHardened) return;
+        ta.__wovlHardened = true;
+        ta.setAttribute('autocomplete',   'off');
+        ta.setAttribute('autocorrect',    'off');
+        ta.setAttribute('autocapitalize', 'off');
+        ta.setAttribute('spellcheck',     'false');
+        ta.setAttribute('inputmode',      'text');
+        try { ta.style.imeMode = 'disabled'; } catch (_) {}
+        // Kill composition events: if an IME still fires compositionstart,
+        // commit immediately so backspace = 1 byte, not the whole word.
+        ta.addEventListener('compositionstart', (ev) => {
+            try { ev.target.blur(); ev.target.focus(); } catch (_) {}
+        }, true);
+    }
+
+    function installTAHardener() {
+        if (window.__wovlTAHardenerHooked) return;
+        window.__wovlTAHardenerHooked = true;
+        hardenTA(findTA());
+        // wetty/xterm.js may recreate the helper-textarea on dimension changes;
+        // keep watching so the attributes stick.
+        const obs = new MutationObserver(() => {
+            const ta = findTA();
+            if (ta && !ta.__wovlHardened) {
+                hardenTA(ta);
+                installModInterceptor();
+            }
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+    }
+
     // Scroll the xterm scrollback by N "screens" (negative = up). Works by
     // dispatching a synthetic wheel event on the viewport, which xterm.js
     // listens to and translates into buffer scroll.
@@ -410,6 +451,7 @@
         let hidden = false;
         try { hidden = localStorage.getItem(HIDDEN_KEY) === '1'; } catch (_) {}
         setHidden(hidden);
+        installTAHardener();
         installModInterceptor();
         installViewportRefit();
     }
