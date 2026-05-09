@@ -287,6 +287,15 @@ if $SETUP_UFW; then
     yes | $SUDO ufw enable >/dev/null 2>&1 || true
     ok "UFW active. Rules:"
     $SUDO ufw status numbered | sed 's/^/      /'
+
+    # Enabling UFW flushes iptables, which wipes Docker's NAT/forward rules
+    # for already-running daemons. Without the restart the next `docker
+    # compose build` runs containers with no outbound network, and apk/apt
+    # fail with "Permission denied" while fetching package indexes.
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker; then
+        step "Restarting Docker so it re-installs its iptables rules after UFW"
+        $SUDO systemctl restart docker || warn "docker restart failed; you may need to restart it manually"
+    fi
 fi
 
 # --- fail2ban ----------------------------------------------------------------

@@ -409,6 +409,15 @@ The new service inherits the auth layer for free.
 
 **`docker compose pull` says `pull access denied for mojalab/caddy`.** That image is built locally, not pulled from Docker Hub. The compose file already sets `pull_policy: build` on the `caddy` service so `docker compose pull` skips it. If you still see the error, your Compose version is older than v2.22 (which introduced `pull_policy: build`) — either upgrade Docker Compose, or run `docker compose pull --ignore-buildable && docker compose up -d --build` instead.
 
+**`apk add` / `apt-get update` fails with `Permission denied` during `docker compose build`.** Classic UFW-vs-Docker collision: enabling UFW flushes iptables, which removes Docker's `DOCKER-USER` forward rules. Containers (including the ephemeral ones spawned by `RUN` during a build) can no longer reach the internet, so package mirrors look unreachable. Fix:
+
+```bash
+sudo systemctl restart docker
+docker compose up -d --build
+```
+
+The installer in this repo now restarts Docker automatically right after enabling UFW; the issue only hits you if you enabled UFW by hand.
+
 **wetty shows "permission denied (publickey)" or logs in as the wrong user.** wetty SSHes into the Zellij container as `lab` using a key generated on first boot. Make sure the Caddyfile `mterm` block strips Authelia's `Remote-User` header (`header_up -Remote-User` inside the `reverse_proxy` block) — otherwise wetty tries to use *your* Authelia username as the SSH login.
 
 **Arrow keys / Ctrl / function keys don't work in wetty.** The `wetty` service must export `TERM=xterm-256color` and the Zellij container's `sshd_config` must include `AcceptEnv LANG LC_* TERM`. Both are set in this repo; verify with `docker compose exec zellij grep AcceptEnv /etc/ssh/sshd_config`.
