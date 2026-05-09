@@ -89,7 +89,7 @@ vim .env
 Set:
 - `DOMAIN` — e.g. `lab.example.com`. Your subdomains will be `auth.lab.example.com`, `files.lab.example.com`, etc.
 - `TZ` — your timezone, e.g. `Europe/Rome`.
-- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests. Leave empty if you'll skip Telegram for now.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests and the interactive bot. Leave empty if you'll skip Telegram for now. See [Setting up Telegram](#setting-up-telegram) below for how to obtain both.
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_SENDER` — used by Authelia to deliver the TOTP enrollment email. Defaults target [Resend](https://resend.com); leave `SMTP_HOST` empty to fall back to the filesystem notifier (codes readable with `docker compose exec authelia cat /config/notification.txt`). On Hetzner port `465` is often blocked outbound — use `587` if you see timeouts.
 
 ### 3. Create the six DNS A records
@@ -238,6 +238,74 @@ You're done. Open `files.lab.example.com` from your phone, your laptop, your fri
 
 The **tgbot** container provides two things:
 
+### Setting up Telegram
+
+You need two values in your `.env`: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+
+**1. Create the bot and get the token.**
+
+In Telegram, open a chat with [@BotFather](https://t.me/BotFather) and send `/newbot`. Follow the prompts (display name, then a unique username ending in `bot`). BotFather replies with an HTTP API token that looks like `123456789:ABCdef-GhIJklmnoPQRStuvWXyz`. That string is your `TELEGRAM_BOT_TOKEN` — keep it secret, it grants full control of the bot.
+
+While you're at it, send `/setcommands` to BotFather, pick your bot, and paste this list so the Telegram client autocompletes commands:
+
+```
+ping - Bot alive check
+stats - CPU, RAM, swap, load, uptime
+df - Disk usage per filesystem
+uptime - Uptime + load averages
+alerts - Show alert thresholds
+mute - Silence proactive alerts for N minutes
+resume - Un-mute alerts
+help - Command list
+```
+
+**2. Get your chat ID.**
+
+A Telegram chat ID is a numeric identifier for the destination of bot messages. It can be your personal account (positive number) or a group (negative number, often starting with `-100`).
+
+First, open a chat with your new bot and send `/start` (or any message). Bots can't see chats they haven't been spoken to first.
+
+Then pick one of these:
+
+- **Easiest** — open [@userinfobot](https://t.me/userinfobot) and press Start. It replies with your numeric user ID. Use that as `TELEGRAM_CHAT_ID` for personal alerts.
+
+- **From the API directly** — after sending a message to your bot, open in any browser:
+  ```
+  https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+  ```
+  Look for `"chat":{"id":123456789,...}` in the JSON response. That number is the chat ID.
+
+- **From the VPS** (if `jq` is installed):
+  ```bash
+  curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" \
+      | jq '.result[].message.chat | {id, type, title, username}'
+  ```
+
+**3. (Optional) Use a group instead of a private chat.**
+
+If you want multiple people (or your own multiple accounts) to receive alerts:
+
+1. Create a Telegram group, add your bot as a member.
+2. Talk to BotFather, `/mybots` → select your bot → *Bot Settings* → *Group Privacy* → *Turn off* (so the bot can read group messages it's mentioned in).
+3. Send any message in the group (`/ping` works once the bot is in).
+4. Call `getUpdates` again — the chat ID will be **negative**, e.g. `-1001234567890`. Use the **whole** value (minus sign included) as `TELEGRAM_CHAT_ID`.
+
+If `getUpdates` returns `{"ok":true,"result":[]}`, the bot has no pending updates: send a fresh message to it (or in the group) and retry within a few seconds.
+
+**4. Test it.**
+
+```bash
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${TELEGRAM_CHAT_ID}" \
+    -d "text=hello from $(hostname)"
+```
+
+If you receive the message, both values are correct. Drop them into `.env` and restart the affected services:
+
+```bash
+docker compose up -d tgbot watchtower
+```
+
 ### Interactive commands
 
 Send any of these to your bot from Telegram:
@@ -283,6 +351,8 @@ Mobile soft keyboards don't ship Esc, Tab, arrows, Ctrl, or function keys — ex
   - **zellij** — pane/tab/move shortcuts (`Alt+n`, `Alt+arrows`, `Ctrl+p`, `Ctrl+t`…)
   - **vim** — `:`, `Esc`, `:w`, `:q`, `:wq`, `gg`, `G`, motions
   - **fkeys** — `F1`–`F12`
+
+**Mobile input hardening.** The overlay also disables the native keyboard's autocorrect, autocapitalize and IME composition on xterm's hidden textarea. Without this, mobile keyboards treat your shell input as English prose: `cd` becomes `Cd`, swipe-typing inserts random spaces, and a single Backspace deletes the entire word being composed instead of one byte. With it, every keystroke goes through as raw bytes, like a desktop terminal.
 
 The overlay is pure vanilla JS, no framework, ~10 KB total. It's bind-mounted into Caddy at `/srv/wetty-overlay` and injected into wetty's HTML via Caddy's `replace-response` module — so wetty itself stays untouched and any future wetty release just works.
 
@@ -336,6 +406,8 @@ The new service inherits the auth layer for free.
 **Caddy can't get a certificate.** Check that the six subdomains resolve to your VPS IP (`dig +short auth.lab.example.com`). Check that ports 80 and 443 are open in your VPS firewall and not bound by anything else. Check Caddy logs: `docker compose logs caddy`.
 
 **Caddy keeps restarting after a config change.** The `mterm` block uses the `replace-response` module which is bundled into a custom Caddy image (`mojalab/caddy:replace-response`). If you edited the Caddyfile and Caddy refuses to start, run `docker compose build caddy && docker compose up -d caddy` and check `docker compose logs caddy` for the exact syntax error.
+
+**`docker compose pull` says `pull access denied for mojalab/caddy`.** That image is built locally, not pulled from Docker Hub. The compose file already sets `pull_policy: build` on the `caddy` service so `docker compose pull` skips it. If you still see the error, your Compose version is older than v2.22 (which introduced `pull_policy: build`) — either upgrade Docker Compose, or run `docker compose pull --ignore-buildable && docker compose up -d --build` instead.
 
 **wetty shows "permission denied (publickey)" or logs in as the wrong user.** wetty SSHes into the Zellij container as `lab` using a key generated on first boot. Make sure the Caddyfile `mterm` block strips Authelia's `Remote-User` header (`header_up -Remote-User` inside the `reverse_proxy` block) — otherwise wetty tries to use *your* Authelia username as the SSH login.
 

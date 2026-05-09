@@ -29,6 +29,7 @@ services:
       context: ./caddy
       dockerfile: Dockerfile
     image: mojalab/caddy:replace-response
+    pull_policy: build      # locally-built image, do not try to pull from a registry
     container_name: caddy
     restart: unless-stopped
     ports:
