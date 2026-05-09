@@ -288,6 +288,17 @@ if $SETUP_UFW; then
     ok "UFW active. Rules:"
     $SUDO ufw status numbered | sed 's/^/      /'
 
+    # UFW ships with DEFAULT_FORWARD_POLICY="DROP", which kills container
+    # outbound traffic: packets enter DOCKER-USER, fall through with no
+    # match, hit the FORWARD chain and get dropped by UFW. Docker manages
+    # its own forwarding rules anyway, so flipping this to ACCEPT is safe
+    # (INPUT stays DROP, the host's exposed ports are still protected).
+    if [[ -f /etc/default/ufw ]] && grep -q '^DEFAULT_FORWARD_POLICY="DROP"' /etc/default/ufw; then
+        info "Setting DEFAULT_FORWARD_POLICY=ACCEPT in /etc/default/ufw (required for Docker container networking)"
+        $SUDO sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+        $SUDO ufw reload >/dev/null 2>&1 || true
+    fi
+
     # Enabling UFW flushes iptables, which wipes Docker's NAT/forward rules
     # for already-running daemons. Without the restart the next `docker
     # compose build` runs containers with no outbound network, and apk/apt

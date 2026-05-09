@@ -409,14 +409,21 @@ The new service inherits the auth layer for free.
 
 **`docker compose pull` says `pull access denied for mojalab/caddy`.** That image is built locally, not pulled from Docker Hub. The compose file already sets `pull_policy: build` on the `caddy` service so `docker compose pull` skips it. If you still see the error, your Compose version is older than v2.22 (which introduced `pull_policy: build`) — either upgrade Docker Compose, or run `docker compose pull --ignore-buildable && docker compose up -d --build` instead.
 
-**`apk add` / `apt-get update` fails with `Permission denied` during `docker compose build`.** Classic UFW-vs-Docker collision: enabling UFW flushes iptables, which removes Docker's `DOCKER-USER` forward rules. Containers (including the ephemeral ones spawned by `RUN` during a build) can no longer reach the internet, so package mirrors look unreachable. Fix:
+**`apk add` / `apt-get update` / `go get` fails with `Permission denied` or `no route to host` during `docker compose build`.** Classic UFW-vs-Docker collision. Two distinct things go wrong:
+
+1. Enabling UFW flushes iptables, removing Docker's `DOCKER-USER` rules until Docker is restarted.
+2. UFW ships `DEFAULT_FORWARD_POLICY="DROP"` in `/etc/default/ufw`, which kills outbound traffic from containers: packets enter `DOCKER-USER`, fall through, hit `FORWARD`, get dropped.
+
+Fix:
 
 ```bash
+sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+sudo ufw reload
 sudo systemctl restart docker
 docker compose up -d --build
 ```
 
-The installer in this repo now restarts Docker automatically right after enabling UFW; the issue only hits you if you enabled UFW by hand.
+This is safe — `INPUT` stays `DROP`, so your VPS's listening ports are still protected. Docker manages its own forward filtering. The installer in this repo applies both fixes automatically when it enables UFW; the issue only hits you if you enabled UFW by hand or with an older version of this installer.
 
 **wetty shows "permission denied (publickey)" or logs in as the wrong user.** wetty SSHes into the Zellij container as `lab` using a key generated on first boot. Make sure the Caddyfile `mterm` block strips Authelia's `Remote-User` header (`header_up -Remote-User` inside the `reverse_proxy` block) — otherwise wetty tries to use *your* Authelia username as the SSH login.
 
