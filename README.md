@@ -54,7 +54,7 @@ Before you start, you should have:
 
 ## Quickstart (the easy path)
 
-If you'd rather not run the steps below by hand, the repo ships an interactive installer that does everything: prompts for domain/email/Telegram/user, optionally creates DNS A records via Cloudflare, configures UFW, generates secrets, hashes the password, renders the Authelia config, waits for DNS propagation, brings the stack up, and prints the Zellij token.
+If you'd rather not run the steps below by hand, the repo ships an interactive installer that does most of the work: prompts for domain/email/Telegram/user, optionally creates DNS A records via Cloudflare, generates secrets, hashes the password, renders the Authelia config, waits for DNS propagation, brings the stack up, and prints the Zellij token. It does **not** touch your firewall or install fail2ban — those interact too unpredictably with Docker and provider-side firewalls; configure them yourself (see [Host hardening](#host-hardening)).
 
 ```bash
 git clone https://github.com/doradame/mojalab-vps-stack.git
@@ -401,6 +401,48 @@ The new service inherits the auth layer for free.
 
 ---
 
+## Host hardening
+
+The installer deliberately **does not** configure a firewall or install fail2ban: those interact too unpredictably with Docker's iptables rules and with provider-side firewalls (Hetzner Cloud, OVH, AWS Security Groups). Doing the wrong thing on a remote VPS locks you out, and the right thing is too site-specific to automate. Configure them yourself, ideally in this order:
+
+**1. Provider-side firewall (recommended).** Hetzner Cloud Firewall, OVH IP firewall, DigitalOcean Cloud Firewalls, AWS Security Groups \u2014 all let you allow only the ports you need without touching the VPS at all. Allow inbound:
+
+- `22/tcp` (or your custom SSH port) from your IP if possible
+- `80/tcp` for HTTP / ACME HTTP-01
+- `443/tcp` and `443/udp` for HTTPS and HTTP/3 QUIC
+
+This is the safest option \u2014 zero risk of locking yourself out via a bad iptables rule, and zero conflict with Docker.
+
+**2. Host firewall (only if you really want one).** If you must run UFW on the host, after `ufw enable` you also need:
+
+```bash
+sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY=\"ACCEPT\"/' /etc/default/ufw\nsudo ufw reload
+sudo systemctl restart docker
+```
+
+Otherwise UFW drops every packet leaving your containers and `docker compose build` fails on the first `apt-get update`. See the troubleshooting entry on `no route to host` for the full diagnosis.
+
+**3. fail2ban for SSH brute-force.** On Debian/Ubuntu the default install already enables an `sshd` jail with sane defaults:
+
+```bash
+sudo apt-get install fail2ban
+sudo systemctl enable --now fail2ban
+```
+
+Authelia regulates its own login brute-force in-app (3 fails \u2192 10 min ban), so fail2ban here is purely for the host's SSH.
+
+**4. SSH posture.** Disable password auth, keys-only:
+
+```sshd_config
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin no
+```
+
+Reload sshd. Optional but useful: pick a non-default port and update the firewall rule.
+
+---
+
 ## Troubleshooting
 
 **Caddy can't get a certificate.** Check that the six subdomains resolve to your VPS IP (`dig +short auth.lab.example.com`). Check that ports 80 and 443 are open in your VPS firewall and not bound by anything else. Check Caddy logs: `docker compose logs caddy`.
@@ -409,21 +451,20 @@ The new service inherits the auth layer for free.
 
 **`docker compose pull` says `pull access denied for mojalab/caddy`.** That image is built locally, not pulled from Docker Hub. The compose file already sets `pull_policy: build` on the `caddy` service so `docker compose pull` skips it. If you still see the error, your Compose version is older than v2.22 (which introduced `pull_policy: build`) — either upgrade Docker Compose, or run `docker compose pull --ignore-buildable && docker compose up -d --build` instead.
 
-**`apk add` / `apt-get update` / `go get` fails with `Permission denied` or `no route to host` during `docker compose build`.** Classic UFW-vs-Docker collision. Two distinct things go wrong:
+**`apk add` / `apt-get update` / `go get` fails with `Permission denied` or `no route to host` during `docker compose build`.** Two common causes:
 
-1. Enabling UFW flushes iptables, removing Docker's `DOCKER-USER` rules until Docker is restarted.
-2. UFW ships `DEFAULT_FORWARD_POLICY="DROP"` in `/etc/default/ufw`, which kills outbound traffic from containers: packets enter `DOCKER-USER`, fall through, hit `FORWARD`, get dropped.
+1. **UFW vs Docker.** UFW ships `DEFAULT_FORWARD_POLICY="DROP"` in `/etc/default/ufw`, which kills container outbound traffic: packets enter `DOCKER-USER`, fall through, hit `FORWARD`, get dropped. Also, enabling UFW flushes iptables and wipes Docker's rules until Docker is restarted. Fix:
 
-Fix:
+   ```bash
+   sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+   sudo ufw reload
+   sudo systemctl restart docker
+   docker compose up -d --build
+   ```
 
-```bash
-sudo sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
-sudo ufw reload
-sudo systemctl restart docker
-docker compose up -d --build
-```
+   Safe — `INPUT` stays `DROP`, so your listening ports are still protected; Docker manages forward filtering itself.
 
-This is safe — `INPUT` stays `DROP`, so your VPS's listening ports are still protected. Docker manages its own forward filtering. The installer in this repo applies both fixes automatically when it enables UFW; the issue only hits you if you enabled UFW by hand or with an older version of this installer.
+2. **Multi-NIC VPS (OVH Public Cloud, Hetzner with vRack, etc.).** Two interfaces both with default route at the same metric, the kernel picks one randomly, the container's MASQUERADE-d traffic exits via the wrong NIC. Symptoms: `ip route` shows two `default via` lines, DNS from inside the container returns `REFUSED` because the internal resolver isn't reachable from that path. Fix: in `/etc/netplan/*.yaml`, set a higher `route-metric` (or `use-routes: false`) on the private NIC, then `sudo netplan apply`.
 
 **wetty shows "permission denied (publickey)" or logs in as the wrong user.** wetty SSHes into the Zellij container as `lab` using a key generated on first boot. Make sure the Caddyfile `mterm` block strips Authelia's `Remote-User` header (`header_up -Remote-User` inside the `reverse_proxy` block) — otherwise wetty tries to use *your* Authelia username as the SSH login.
 
@@ -451,7 +492,7 @@ This stack is designed for a **single-user homelab on a public VPS**. It defends
 
 - **Unauthenticated internet traffic** (anything that can't get past Authelia + TOTP)
 - **Casual scanners and bots** (catch-all 404, no service banners, HSTS, security headers)
-- **SSH brute-force** on the host (optional fail2ban via the installer)
+- **SSH brute-force** on the host (if you install fail2ban yourself — see [Host hardening](#host-hardening))
 - **Login brute-force** on Authelia (built-in regulation: 3 fails → 10 min ban)
 - **Resource exhaustion** from a single misbehaving container (per-service `memory`/`cpu` limits)
 - **Lateral movement from a compromised peripheral container to the Docker host** (Watchtower & Glances go through `dockerproxy` with `POST=0`, no direct socket mount)

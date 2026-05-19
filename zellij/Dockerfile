@@ -5,8 +5,9 @@
 #
 # To pin a specific binary release, set ZELLIJ_SHA256 at build time:
 #   docker compose build --build-arg ZELLIJ_SHA256=<hex>
-# Retrieve the expected hash from:
+# Retrieve the expected hash from the release tarball for YOUR arch:
 #   https://github.com/zellij-org/zellij/releases/download/v${VER}/zellij-x86_64-unknown-linux-musl.tar.gz
+#   https://github.com/zellij-org/zellij/releases/download/v${VER}/zellij-aarch64-unknown-linux-musl.tar.gz
 # (compute with `sha256sum` on a trusted machine, or compare across releases).
 # If left empty, the build SKIPS verification (acceptable for a homelab, not for prod).
 # ============================================================================
@@ -37,9 +38,16 @@ RUN set -eux; \
 RUN npm install -g @anthropic-ai/claude-code || \
     echo "claude-code install failed (non-fatal, install manually with: npm i -g @anthropic-ai/claude-code)"
 
-# Install Zellij from official binary release, optionally verifying the SHA256.
+# Install Zellij from official binary release, picking the right arch.
+# Optionally verify SHA256 (set ZELLIJ_SHA256 at build time — must match the
+# tarball for the target architecture).
 RUN set -eux; \
-    curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-x86_64-unknown-linux-musl.tar.gz" \
+    case "$(uname -m)" in \
+        x86_64|amd64)       zellijArch="x86_64-unknown-linux-musl" ;; \
+        aarch64|arm64)      zellijArch="aarch64-unknown-linux-musl" ;; \
+        *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-${zellijArch}.tar.gz" \
         -o /tmp/zellij.tar.gz; \
     if [ -n "${ZELLIJ_SHA256}" ]; then \
         echo "${ZELLIJ_SHA256}  /tmp/zellij.tar.gz" | sha256sum -c -; \
@@ -48,6 +56,8 @@ RUN set -eux; \
     fi; \
     tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin/; \
     chmod +x /usr/local/bin/zellij; \
+    file /usr/local/bin/zellij; \
+    /usr/local/bin/zellij --version; \
     rm /tmp/zellij.tar.gz
 
 # Non-root user inside container.

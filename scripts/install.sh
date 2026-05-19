@@ -4,16 +4,20 @@
 # ============================================================================
 # Goes from a fresh VPS (with Docker installed) to a fully working stack:
 #
-#   1. Sanity checks (Docker, Compose plugin, root/sudo if needed for UFW)
+#   1. Sanity checks (Docker, Compose plugin)
 #   2. Interactive Q&A: domain, timezone, ACME email, Telegram, user account
 #   3. Optional: create DNS A records via Cloudflare API
-#   4. Optional: configure UFW firewall (open 22/80/443)
-#   5. Write .env, render Authelia config, generate secrets
-#   6. Hash password, create users_database.yml
-#   7. Wait for DNS propagation of all four subdomains
-#   8. docker compose up -d, wait for healthchecks
-#   9. Generate Zellij web token and print it
-#  10. (optional) Telegram smoke test
+#   4. Write .env, render Authelia config, generate secrets
+#   5. Hash password, create users_database.yml
+#   6. Wait for DNS propagation of all subdomains
+#   7. docker compose up -d, wait for healthchecks
+#   8. Generate Zellij web token and print it
+#   9. (optional) Telegram smoke test
+#
+# Host hardening (UFW firewall, fail2ban) is intentionally out of scope:
+# it interacts badly with Docker's iptables rules and with provider-side
+# firewalls, and the right configuration is too site-specific. The script
+# prints a reminder at the end; configure them yourself if needed.
 #
 # Idempotent where reasonable. Re-run after fixing a problem.
 # ============================================================================
@@ -172,54 +176,11 @@ if ask_yes_no "Create DNS A records automatically via Cloudflare API?" "n"; then
     DNS_VIA_CF=true
 fi
 
-# --- 4. UFW firewall ----------------------------------------------------------
-SETUP_UFW=false
-SSH_PORT=""
-if command -v ufw >/dev/null 2>&1; then
-    # Best-effort SSH port detection so we don't lock the user out of a custom
-    # sshd port (e.g. 1978 instead of 22).
-    DETECTED_SSH_PORT=""
-    # 1) From the currently-connected SSH session, if any.
-    if [[ -n "${SSH_CONNECTION:-}" ]]; then
-        DETECTED_SSH_PORT="$(awk '{print $4}' <<<"$SSH_CONNECTION" 2>/dev/null || true)"
-    fi
-    # 2) From sshd_config (uncommented Port directive).
-    if [[ -z "$DETECTED_SSH_PORT" && -r /etc/ssh/sshd_config ]]; then
-        DETECTED_SSH_PORT="$(awk '/^[[:space:]]*Port[[:space:]]+[0-9]+/ {print $2; exit}' /etc/ssh/sshd_config 2>/dev/null || true)"
-    fi
-    # 3) From a listening sshd, if available.
-    if [[ -z "$DETECTED_SSH_PORT" ]] && command -v ss >/dev/null 2>&1; then
-        DETECTED_SSH_PORT="$(ss -ltnp 2>/dev/null | awk '/sshd/ {split($4,a,":"); print a[length(a)]; exit}' || true)"
-    fi
-    DETECTED_SSH_PORT="${DETECTED_SSH_PORT:-22}"
-
-    info "UFW will set: default deny incoming, allow outgoing, open SSH + 80 + 443 (HTTP/3 UDP)."
-    info "Detected SSH port: ${DETECTED_SSH_PORT}. CHANGE THIS if your sshd listens elsewhere"
-    info "— the wrong value will lock you out as soon as UFW is enabled."
-    if ask_yes_no "Configure UFW now?" "y"; then
-        ask "SSH port to keep open" SSH_PORT "${DETECTED_SSH_PORT}"
-        if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
-            die "Invalid SSH port: ${SSH_PORT}"
-        fi
-        info "About to apply these UFW rules:"
-        info "  default deny incoming / allow outgoing"
-        info "  allow ${SSH_PORT}/tcp  (SSH)"
-        info "  allow 80/tcp           (HTTP / ACME)"
-        info "  allow 443/tcp          (HTTPS)"
-        info "  allow 443/udp          (HTTP/3 QUIC)"
-        if ask_yes_no "Confirm and enable UFW?" "y"; then
-            SETUP_UFW=true
-        else
-            warn "UFW step cancelled by user."
-        fi
-    fi
-fi
-
-# --- 5. fail2ban (host-level SSH brute-force protection) ---------------------
-SETUP_FAIL2BAN=false
-if ask_yes_no "Install and enable fail2ban for SSH brute-force protection on the host?" "y"; then
-    SETUP_FAIL2BAN=true
-fi
+# --- 4. Host hardening: skipped on purpose -----------------------------------
+# UFW + Docker on a generic VPS is a minefield: UFW's DEFAULT_FORWARD_POLICY,
+# multi-NIC providers (OVH/Hetzner with vRack), nft-vs-legacy iptables back-
+# ends, and provider-side firewalls all interact in non-obvious ways. We
+# leave it to the operator and just print a reminder at the end of the run.
 
 # ============================================================================
 # Apply
@@ -274,72 +235,8 @@ else
     done
 fi
 
-# --- UFW ---------------------------------------------------------------------
-if $SETUP_UFW; then
-    step "Configuring UFW"
-    SUDO=""; [[ $EUID -eq 0 ]] || SUDO="sudo"
-    $SUDO ufw default deny incoming || true
-    $SUDO ufw default allow outgoing || true
-    $SUDO ufw allow "${SSH_PORT}/tcp" comment 'SSH' || true
-    $SUDO ufw allow 80/tcp comment 'HTTP (Caddy / ACME)' || true
-    $SUDO ufw allow 443/tcp comment 'HTTPS (Caddy)' || true
-    $SUDO ufw allow 443/udp comment 'HTTP/3 QUIC' || true
-    yes | $SUDO ufw enable >/dev/null 2>&1 || true
-    ok "UFW active. Rules:"
-    $SUDO ufw status numbered | sed 's/^/      /'
-
-    # UFW ships with DEFAULT_FORWARD_POLICY="DROP", which kills container
-    # outbound traffic: packets enter DOCKER-USER, fall through with no
-    # match, hit the FORWARD chain and get dropped by UFW. Docker manages
-    # its own forwarding rules anyway, so flipping this to ACCEPT is safe
-    # (INPUT stays DROP, the host's exposed ports are still protected).
-    if [[ -f /etc/default/ufw ]] && grep -q '^DEFAULT_FORWARD_POLICY="DROP"' /etc/default/ufw; then
-        info "Setting DEFAULT_FORWARD_POLICY=ACCEPT in /etc/default/ufw (required for Docker container networking)"
-        $SUDO sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
-        $SUDO ufw reload >/dev/null 2>&1 || true
-    fi
-
-    # Enabling UFW flushes iptables, which wipes Docker's NAT/forward rules
-    # for already-running daemons. Without the restart the next `docker
-    # compose build` runs containers with no outbound network, and apk/apt
-    # fail with "Permission denied" while fetching package indexes.
-    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker; then
-        step "Restarting Docker so it re-installs its iptables rules after UFW"
-        $SUDO systemctl restart docker || warn "docker restart failed; you may need to restart it manually"
-    fi
-fi
-
-# --- fail2ban ----------------------------------------------------------------
-if $SETUP_FAIL2BAN; then
-    step "Installing fail2ban"
-    F2B_SUDO=""; [[ $EUID -eq 0 ]] || F2B_SUDO="sudo"
-    if ! command -v fail2ban-client >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            $F2B_SUDO apt-get update -qq && $F2B_SUDO apt-get install -y -qq fail2ban || warn "apt install failed"
-        else
-            warn "apt-get not available; install fail2ban manually."
-        fi
-    fi
-    if command -v fail2ban-client >/dev/null 2>&1; then
-        # Minimal jail.local enabling sshd jail with sane defaults; idempotent.
-        JAIL=/etc/fail2ban/jail.local
-        if [[ ! -f "$JAIL" ]] || ! grep -q '^\[sshd\]' "$JAIL"; then
-            $F2B_SUDO tee "$JAIL" >/dev/null <<'EOF'
-[DEFAULT]
-bantime  = 1h
-findtime = 10m
-maxretry = 5
-backend  = systemd
-
-[sshd]
-enabled = true
-EOF
-        fi
-        $F2B_SUDO systemctl enable --now fail2ban >/dev/null 2>&1 || true
-        $F2B_SUDO systemctl restart fail2ban >/dev/null 2>&1 || true
-        ok "fail2ban active (jail: sshd)"
-    fi
-fi
+# --- UFW / fail2ban: skipped --------------------------------------------------
+# (See note in section 4 above. Reminder is printed at the end of the run.)
 
 # --- Authelia secrets ---------------------------------------------------------
 step "Generating Authelia secrets"
@@ -472,4 +369,13 @@ info "Useful commands:"
 info "  docker compose ps"
 info "  docker compose logs -f caddy authelia"
 info "  docker compose exec zellij zellij web --create-token"
+echo ""
+echo "${BOLD}${YELLOW}Host hardening reminder${RESET} — not configured by this installer:"
+info "  • ${BOLD}Firewall${RESET}: allow only 22/tcp, 80/tcp, 443/tcp+udp on the public interface."
+info "    Prefer your provider's firewall (Hetzner Cloud Firewall, OVH, AWS SG)."
+info "    UFW on the host is possible but interacts badly with Docker's iptables;"
+info "    if you use it, set DEFAULT_FORWARD_POLICY=ACCEPT in /etc/default/ufw and"
+info "    restart Docker after enabling, or container outbound traffic will break."
+info "  • ${BOLD}fail2ban${RESET}: 'sudo apt-get install fail2ban' enables an SSH jail by default."
+info "  • ${BOLD}SSH${RESET}: disable password auth, keys-only; consider a non-default port."
 echo ""
