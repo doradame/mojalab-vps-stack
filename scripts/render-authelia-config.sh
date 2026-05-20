@@ -41,13 +41,26 @@ if [[ -n "${SMTP_HOST:-}" ]]; then
     : "${SMTP_PORT:?SMTP_PORT must be set when SMTP_HOST is set}"
     : "${SMTP_USERNAME:?SMTP_USERNAME must be set when SMTP_HOST is set}"
     : "${SMTP_SENDER:?SMTP_SENDER must be set when SMTP_HOST is set}"
-    # Pick scheme by port: 465 = implicit TLS, 587 = STARTTLS, others = plain.
-    case "${SMTP_PORT}" in
-        465)  SMTP_SCHEME="submissions" ;;
-        587)  SMTP_SCHEME="submission" ;;
-        25)   SMTP_SCHEME="smtp" ;;
-        *)    SMTP_SCHEME="submissions" ;;
-    esac
+    # Pick scheme by port unless SMTP_SCHEME is set explicitly in .env.
+    # Valid schemes: submissions (implicit TLS), submission (STARTTLS), smtp (plaintext).
+    #   465, 2465  → submissions (implicit TLS — Resend offers 2465 as fallback)
+    #   587, 2587  → submission  (STARTTLS  — Resend offers 2587 as fallback)
+    #   25         → smtp        (plaintext, almost never what you want)
+    # Unknown ports default to STARTTLS (the safer guess for most providers).
+    if [[ -n "${SMTP_SCHEME:-}" ]]; then
+        :  # honour explicit override
+    else
+        case "${SMTP_PORT}" in
+            465|2465)  SMTP_SCHEME="submissions" ;;
+            587|2587)  SMTP_SCHEME="submission" ;;
+            25)        SMTP_SCHEME="smtp" ;;
+            *)
+                echo "⚠  SMTP_PORT=${SMTP_PORT} not recognised; defaulting to STARTTLS (submission://)." >&2
+                echo "   Override with SMTP_SCHEME=submissions|submission|smtp in .env if wrong." >&2
+                SMTP_SCHEME="submission"
+                ;;
+        esac
+    fi
     NOTIFIER_BLOCK=$(cat <<EOF
 notifier:
   # Skip the startup connectivity check: many VPS providers (e.g. Hetzner)
@@ -61,7 +74,7 @@ notifier:
     subject: '[Authelia] {title}'
 EOF
 )
-    echo "→ Notifier: SMTP (${SMTP_HOST}:${SMTP_PORT})"
+    echo "→ Notifier: SMTP (${SMTP_SCHEME}://${SMTP_HOST}:${SMTP_PORT})"
 else
     NOTIFIER_BLOCK=$(cat <<'EOF'
 notifier:
