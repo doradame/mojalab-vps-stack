@@ -67,6 +67,9 @@ AllowUsers lab
 UseDNS no
 PrintMotd no
 AcceptEnv LANG LC_* TERM
+# Allow the WETTY marker injected via authorized_keys so .bashrc can detect
+# mobile (wetty) logins and skip the zellij auto-attach (better mobile scroll).
+PermitUserEnvironment WETTY
 EOF
 
 # --- Wetty SSH key -----------------------------------------------------------
@@ -77,7 +80,12 @@ if [[ ! -f /ssh-keys/wetty_id_ed25519 ]]; then
 fi
 chmod 600 /ssh-keys/wetty_id_ed25519
 chmod 644 /ssh-keys/wetty_id_ed25519.pub
-install -m 600 -o lab -g lab /ssh-keys/wetty_id_ed25519.pub /home/lab/.ssh/authorized_keys
+# Authorize the wetty key with environment="WETTY=1" so the lab user's
+# .bashrc can recognise mobile logins and skip the zellij auto-attach
+# (zellij captures mouse events and breaks browser-native touch scroll).
+pubkey="$(cat /ssh-keys/wetty_id_ed25519.pub)"
+printf 'environment="WETTY=1" %s\n' "$pubkey" \
+    | sudo install -m 600 -o lab -g lab /dev/stdin /home/lab/.ssh/authorized_keys
 
 # Start sshd (daemonized).
 sudo /usr/sbin/sshd

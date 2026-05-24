@@ -96,6 +96,15 @@
 }
 #wovl button.arr:hover { background: #2a3d65; }
 
+/* Action button (e.g. 'attach'): green, prompt-like */
+#wovl button.act {
+    background: #1f3a2a;
+    border-color: #2f5a3f;
+    color: #a6e3a1;
+}
+#wovl button.act:hover  { background: #2a4d38; }
+#wovl button.act:active { background: #16261c; }
+
 /* Hide / utility button on the right */
 #wovl button.util {
     background: transparent;

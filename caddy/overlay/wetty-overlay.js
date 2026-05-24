@@ -37,19 +37,19 @@
     //   alt  = sticky Alt button (special)
     //   cls  = extra CSS class: 'mod' | 'arr' | 'util'
     const SETS = {
-        zellij: {
-            name: 'zellij',
+        shell: {
+            name: 'shell',
             keys: [
                 { label: 'ESC',  key: K('Escape', 'Escape', 27) },
                 { label: 'TAB',  key: K('Tab',    'Tab',    9)  },
                 { label: 'Ctrl', ctrl: true, cls: 'mod' },
                 { label: 'Alt',  alt:  true, cls: 'mod' },
-                { label: 'Ctrl+P', seq: '\x10', cls: 'mod' },
-                { label: 'Ctrl+T', seq: '\x14', cls: 'mod' },
-                { label: 'Ctrl+W', seq: '\x17', cls: 'mod' },
-                { label: 'Ctrl+Q', seq: '\x11', cls: 'mod' },
-                { label: 'Ctrl+C', seq: '\x03', cls: 'mod' },
-                { label: 'Ctrl+D', seq: '\x04', cls: 'mod' },
+                { label: 'Ctrl+C', seq: '\x03', cls: 'mod' },   // interrupt
+                { label: 'Ctrl+D', seq: '\x04', cls: 'mod' },   // EOF / logout
+                { label: 'Ctrl+R', seq: '\x12', cls: 'mod' },   // history search
+                { label: 'Ctrl+L', seq: '\x0c', cls: 'mod' },   // clear screen
+                { label: 'Ctrl+Z', seq: '\x1a', cls: 'mod' },   // suspend
+                { label: 'attach', seq: 'a', enter: true, cls: 'act' },  // zellij attach -c main (via .bashrc alias)
                 { label: '↑', cls: 'arr', key: ARROW_UP    },
                 { label: '↓', cls: 'arr', key: ARROW_DOWN  },
                 { label: '←', cls: 'arr', key: ARROW_LEFT  },
@@ -91,7 +91,7 @@
         },
     };
 
-    const SET_ORDER = ['zellij', 'vim', 'fkeys'];
+    const SET_ORDER = ['shell', 'vim', 'fkeys'];
 
     // ---- Modifier state -----------------------------------------------------
     // Each modifier: state ∈ { 'off', 'armed' (one-shot), 'locked' }.
@@ -287,7 +287,7 @@
     }
 
     // ---- DOM construction ---------------------------------------------------
-    let currentSet = 'zellij';
+    let currentSet = 'shell';
     try {
         const saved = localStorage.getItem(SET_KEY);
         if (saved && SETS[saved]) currentSet = saved;
@@ -347,6 +347,7 @@
                 }
                 if ('seq' in k) sendSeq(k.seq);
                 else if ('key' in k) sendKey(k.key);
+                if (k.enter) sendKey(K('Enter', 'Enter', 13));
             };
             const onCancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
 

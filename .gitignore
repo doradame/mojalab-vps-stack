@@ -6,6 +6,7 @@
 #   - .env.example                                 (commit)
 #   - authelia/users_database.yml.example          (commit)
 #   - authelia/configuration.yml.template          (commit)
+#   - caddy/home/index.html.template               (commit)
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -39,6 +40,9 @@ authelia/notification.txt
 # ----------------------------------------------------------------------------
 caddy/data/
 caddy/config/
+
+# Caddy — rendered landing page (template is the source of truth)
+caddy/home/index.html
 
 # ----------------------------------------------------------------------------
 # Filestash — state and uploads

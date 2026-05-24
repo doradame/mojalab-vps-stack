@@ -7,11 +7,20 @@ case $- in
       *) return;;
 esac
 
-# ---- Auto-attach to shared zellij session for SSH/wetty logins ------------
-# When ssh'ing in (e.g. from wetty on phone), drop straight into the same
-# multiplexed session that term.{$DOMAIN} uses. This is what makes the mobile
-# web terminal show the *same* panes as the desktop one.
-if [[ -n "${SSH_CONNECTION:-}" && -z "${ZELLIJ:-}" ]] && command -v zellij >/dev/null 2>&1; then
+# ---- Auto-attach to shared zellij session for SSH logins ------------------
+# Desktop logs in via the zellij web client (term.{$DOMAIN}) — no SSH path,
+# so this branch is for non-mobile SSH only.
+#
+# Mobile logs in via wetty (mterm.{$DOMAIN}) which sets WETTY=1 from
+# authorized_keys. We DO NOT auto-attach there: zellij captures mouse events
+# and ruins browser-native touch scroll, making the phone unusable. Instead,
+# the user gets a plain bash with full xterm.js scrollback and can join the
+# desktop session manually with the `a` alias when needed.
+alias a='zellij attach -c main'
+alias attach='zellij attach -c main'
+
+if [[ -n "${SSH_CONNECTION:-}" && -z "${ZELLIJ:-}" && -z "${WETTY:-}" ]] \
+        && command -v zellij >/dev/null 2>&1; then
     exec zellij attach -c main
 fi
 
@@ -121,14 +130,25 @@ PS1='\[\033[32m\]\u@\h\[\033[0m\] \[\033[36m\]\w\[\033[0m\]$(__git_branch)\n'\
 # ---- Welcome banner --------------------------------------------------------
 if [[ -z "$LAB_BANNER_SHOWN" ]]; then
     export LAB_BANNER_SHOWN=1
-    printf '\033[36m'
-    cat <<'EOF'
-
-  ┌────────────────────────────────────────────┐
-  │  mojalab — zellij web terminal             │
-  │  /srv is your shared workspace             │
-  └────────────────────────────────────────────┘
-
-EOF
-    printf '\033[0m'
+    _brand="${LAB_BRAND:-mojalab}"
+    if [[ -n "${WETTY:-}" ]]; then
+        _line=$(printf '%s — mobile shell (browser scroll)' "$_brand")
+        _line=$(printf '%-43.43s' "$_line")
+        printf '\033[36m\n'
+        printf '  ┌────────────────────────────────────────────┐\n'
+        printf '  │  %s │\n' "$_line"
+        printf '  │  type "a" to attach the desktop session    │\n'
+        printf '  └────────────────────────────────────────────┘\n\n'
+        printf '\033[0m'
+    else
+        _line=$(printf '%s — zellij web terminal' "$_brand")
+        _line=$(printf '%-43.43s' "$_line")
+        printf '\033[36m\n'
+        printf '  ┌────────────────────────────────────────────┐\n'
+        printf '  │  %s │\n' "$_line"
+        printf '  │  /srv is your shared workspace             │\n'
+        printf '  └────────────────────────────────────────────┘\n\n'
+        printf '\033[0m'
+    fi
+    unset _brand _line
 fi
