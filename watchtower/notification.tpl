@@ -1,9 +1,12 @@
 {{- if .Report -}}
 {{- with .Report -}}
-{{- if ( or .Updated .Failed ) -}}
+{{- if ( or .Updated .Stale .Failed ) -}}
 *Watchtower digest on {{ .Hostname }}*
+{{- range .Stale }}
+🆕 {{ .ImageName }}: update available
+{{- end -}}
 {{- range .Updated }}
-• {{ .ImageName }}: {{ .CurrentImageID.ShortID }} → {{ .LatestImageID.ShortID }}
+✅ {{ .ImageName }}: {{ .CurrentImageID.ShortID }} → {{ .LatestImageID.ShortID }}
 {{- end -}}
 {{- range .Failed }}
 ❌ {{ .ImageName }}: {{ .Error }}

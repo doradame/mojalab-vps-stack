@@ -336,7 +336,7 @@ services:
       - DOCKER_HOST=tcp://dockerproxy:2375
       - DOCKER_API_VERSION=1.45
       - WATCHTOWER_MONITOR_ONLY=true
-      - WATCHTOWER_SCHEDULE=0 0 5 * * *           # 5 AM UTC daily
+      - WATCHTOWER_SCHEDULE=0 0 5 * * *           # 5:00 AM daily (in $TZ timezone)
       - WATCHTOWER_NOTIFICATION_REPORT=true
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_NOTIFICATION_URL=telegram://${TELEGRAM_BOT_TOKEN}@telegram?chats=${TELEGRAM_CHAT_ID}
