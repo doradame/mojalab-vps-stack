@@ -87,7 +87,7 @@ EOF
 fi
 
 # First substitute DOMAIN, then swap the @@NOTIFIER@@ placeholder.
-rendered=$(envsubst '${DOMAIN}' < "${TEMPLATE}")
+rendered=$(envsubst '${DOMAIN} ${BRAND_NAME}' < "${TEMPLATE}")
 # Use awk to replace the placeholder with the multi-line block safely.
 NOTIFIER_BLOCK="${NOTIFIER_BLOCK}" awk '
     /^# @@NOTIFIER@@$/ { print ENVIRON["NOTIFIER_BLOCK"]; next }

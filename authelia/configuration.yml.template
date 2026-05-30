@@ -28,7 +28,7 @@ identity_validation:
 # Compatible with Aegis, Authy, Google Authenticator, 1Password, etc.
 # ----------------------------------------------------------------------------
 totp:
-  issuer: 'mojalab'
+  issuer: '${BRAND_NAME}'
   period: 30
   skew: 1
 
