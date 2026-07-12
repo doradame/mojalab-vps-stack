@@ -205,7 +205,7 @@ The token is persisted in the `zellij_cache` named volume, so it survives contai
 
 **Mobile access.** From your phone, open `mterm.lab.example.com` instead. It serves a touch-friendly web terminal (wetty) that SSHs into the Zellij container as user `lab` and auto-attaches to the **same** session named `main`. Whatever a desktop client is running — Claude Code, OpenCode, a long build — you see it live on the phone. No Zellij token needed there: Authelia gates the route, the SSH key is generated on first boot and never leaves the internal Docker network.
 
-A virtual keyboard overlay sits at the bottom of the wetty page on touch devices: arrows, Tab, Esc, sticky **Ctrl/Alt** (tap = single-shot, long-press = lock), and three swipeable key sets — **zellij** (pane/tab shortcuts), **vim** (motions, save/quit), **F1–F12**. Swipe left/right on the overlay to cycle sets. See [Mobile keyboard overlay](#mobile-keyboard-overlay) below for details.
+A virtual keyboard overlay sits at the bottom of the wetty page on touch devices: arrows (hold to auto-repeat), Tab, Esc, sticky **Ctrl/Alt** (tap = single-shot, long-press = lock), and four swipeable key sets — **shell** (Ctrl+C/D/R/L/Z, attach), **zellij** (pane/tab/resize modes, floating panes, detach), **vim** (motions, `:w`/`:wq`/`:q!`), **F1–F12**. Swipe left/right on the overlay to cycle sets. See [Mobile keyboard overlay](#mobile-keyboard-overlay) below for details.
 
 ### Dev container (Node 22, Python 3.13, coding agents)
 
@@ -353,12 +353,14 @@ Mobile soft keyboards don't ship Esc, Tab, arrows, Ctrl, or function keys — ex
 
 **How to use it:**
 
-- **Always-on row**: arrows, Esc, Tab, `~`, `|`, `/`, the set indicator, swipe affordance
+- **Always-on row**: arrows (press-and-hold to auto-repeat — handy for history and vim motions), Esc, Tab, scrollback ▲▲/▼▼ (hold to keep scrolling), the set indicator, swipe affordance
 - **Sticky modifiers** — tap `Ctrl` once for single-shot (next key is sent with Ctrl, then Ctrl auto-releases). Long-press (≥0.5s) to **lock** Ctrl on until tapped off again. Same for `Alt`. Visual states: `armed` (orange pulse) and `locked` (solid red).
-- **Three key sets** (swipe left/right on the overlay to cycle, or tap the indicator):
-  - **zellij** — pane/tab/move shortcuts (`Alt+n`, `Alt+arrows`, `Ctrl+p`, `Ctrl+t`…)
-  - **vim** — `:`, `Esc`, `:w`, `:q`, `:wq`, `gg`, `G`, motions
+- **Four key sets** (swipe left/right on the overlay to cycle, or tap the indicator):
+  - **shell** — Ctrl+C/D/R/L/Z one-tap combos, `attach` to join the desktop zellij session
+  - **zellij** — new pane, floating panes, pane/tab/resize modes, detach
+  - **vim** — `:`, `Esc`, `:w`, `:wq`, `:q!`, `gg`, `G`, `dd`, `yy`, motions
   - **fkeys** — `F1`–`F12`
+- **Keyboard-aware**: the bar rides on top of the soft keyboard when it opens (iOS overlays the page instead of resizing it — without this the buttons would hide exactly when you type), and the terminal height follows the bar's real height, so the prompt is never covered no matter how many rows the buttons wrap onto.
 
 **Mobile input hardening.** The overlay also disables the native keyboard's autocorrect, autocapitalize and IME composition on xterm's hidden textarea. Without this, mobile keyboards treat your shell input as English prose: `cd` becomes `Cd`, swipe-typing inserts random spaces, and a single Backspace deletes the entire word being composed instead of one byte. With it, every keystroke goes through as raw bytes, like a desktop terminal.
 

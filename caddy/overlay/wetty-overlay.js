@@ -50,10 +50,28 @@
                 { label: 'Ctrl+L', seq: '\x0c', cls: 'mod' },   // clear screen
                 { label: 'Ctrl+Z', seq: '\x1a', cls: 'mod' },   // suspend
                 { label: 'attach', seq: 'a', enter: true, cls: 'act' },  // zellij attach -c main (via .bashrc alias)
-                { label: '↑', cls: 'arr', key: ARROW_UP    },
-                { label: '↓', cls: 'arr', key: ARROW_DOWN  },
-                { label: '←', cls: 'arr', key: ARROW_LEFT  },
-                { label: '→', cls: 'arr', key: ARROW_RIGHT },
+                { label: '↑', cls: 'arr', rep: true, key: ARROW_UP    },
+                { label: '↓', cls: 'arr', rep: true, key: ARROW_DOWN  },
+                { label: '←', cls: 'arr', rep: true, key: ARROW_LEFT  },
+                { label: '→', cls: 'arr', rep: true, key: ARROW_RIGHT },
+            ],
+        },
+        zellij: {
+            name: 'zellij',
+            keys: [
+                { label: 'ESC',    key: K('Escape', 'Escape', 27) },
+                { label: 'Ctrl', ctrl: true, cls: 'mod' },
+                { label: 'Alt',  alt:  true, cls: 'mod' },
+                { label: 'new',    seq: '\x1bn', cls: 'act' },   // Alt+n — new pane
+                { label: 'float',  seq: '\x1bf', cls: 'act' },   // Alt+f — toggle floating panes
+                { label: 'pane',   seq: '\x10',  cls: 'mod' },   // Ctrl+p — pane mode
+                { label: 'tab',    seq: '\x14',  cls: 'mod' },   // Ctrl+t — tab mode
+                { label: 'resize', seq: '\x0e',  cls: 'mod' },   // Ctrl+n — resize mode
+                { label: 'detach', seq: '\x0fd', cls: 'util' },  // Ctrl+o, d — detach session
+                { label: '↑', cls: 'arr', rep: true, key: ARROW_UP    },
+                { label: '↓', cls: 'arr', rep: true, key: ARROW_DOWN  },
+                { label: '←', cls: 'arr', rep: true, key: ARROW_LEFT  },
+                { label: '→', cls: 'arr', rep: true, key: ARROW_RIGHT },
             ],
         },
         vim: {
@@ -62,17 +80,19 @@
                 { label: 'ESC',  key: K('Escape', 'Escape', 27) },
                 { label: ':',    seq: ':' },
                 { label: '/',    seq: '/' },
-                { label: 'Ctrl', ctrl: true, cls: 'mod' },
+                { label: ':w',   seq: ':w',  enter: true, cls: 'act' },
+                { label: ':wq',  seq: ':wq', enter: true, cls: 'act' },
+                { label: ':q!',  seq: ':q!', enter: true, cls: 'mod' },
                 { label: 'gg',   seq: 'gg' },
                 { label: 'G',    seq: 'G'  },
                 { label: 'dd',   seq: 'dd' },
                 { label: 'yy',   seq: 'yy' },
                 { label: 'p',    seq: 'p'  },
                 { label: 'u',    seq: 'u'  },
-                { label: '↑', cls: 'arr', key: ARROW_UP    },
-                { label: '↓', cls: 'arr', key: ARROW_DOWN  },
-                { label: '←', cls: 'arr', key: ARROW_LEFT  },
-                { label: '→', cls: 'arr', key: ARROW_RIGHT },
+                { label: '↑', cls: 'arr', rep: true, key: ARROW_UP    },
+                { label: '↓', cls: 'arr', rep: true, key: ARROW_DOWN  },
+                { label: '←', cls: 'arr', rep: true, key: ARROW_LEFT  },
+                { label: '→', cls: 'arr', rep: true, key: ARROW_RIGHT },
             ],
         },
         fkeys: {
@@ -91,7 +111,7 @@
         },
     };
 
-    const SET_ORDER = ['shell', 'vim', 'fkeys'];
+    const SET_ORDER = ['shell', 'zellij', 'vim', 'fkeys'];
 
     // ---- Modifier state -----------------------------------------------------
     // Each modifier: state ∈ { 'off', 'armed' (one-shot), 'locked' }.
@@ -320,9 +340,20 @@
             if (k.ctrl) mods.ctrl.btn = btn;
             if (k.alt)  mods.alt.btn  = btn;
 
-            // Long-press detection for sticky-mod buttons (>= 500ms = LOCK)
-            let pressTimer = null;
-            const LONG_MS = 500;
+            // Long-press on sticky-mod buttons (>= 500ms) = LOCK.
+            // Press-and-hold on rep:true keys (arrows) = auto-repeat.
+            let pressTimer = null, repInterval = null, didRepeat = false;
+            const LONG_MS = 500, REP_DELAY = 350, REP_EVERY = 70;
+
+            const fire = () => {
+                if ('seq' in k) sendSeq(k.seq);
+                else if ('key' in k) sendKey(k.key);
+                if (k.enter) sendKey(K('Enter', 'Enter', 13));
+            };
+            const clearTimers = () => {
+                if (pressTimer)  { clearTimeout(pressTimer);   pressTimer  = null; }
+                if (repInterval) { clearInterval(repInterval); repInterval = null; }
+            };
 
             const onDown = (ev) => {
                 ev.preventDefault();
@@ -332,6 +363,14 @@
                         pressTimer = null;
                         lockMod(k.ctrl ? 'ctrl' : 'alt');
                     }, LONG_MS);
+                } else if (k.rep) {
+                    didRepeat = false;
+                    pressTimer = setTimeout(() => {
+                        pressTimer = null;
+                        didRepeat = true;
+                        fire();
+                        repInterval = setInterval(fire, REP_EVERY);
+                    }, REP_DELAY);
                 }
             };
             const onUp = (ev) => {
@@ -345,11 +384,12 @@
                     }
                     return;
                 }
-                if ('seq' in k) sendSeq(k.seq);
-                else if ('key' in k) sendKey(k.key);
-                if (k.enter) sendKey(K('Enter', 'Enter', 13));
+                const repeated = didRepeat;
+                clearTimers();
+                didRepeat = false;
+                if (!repeated) fire();
             };
-            const onCancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+            const onCancel = () => { clearTimers(); didRepeat = false; };
 
             btn.addEventListener('pointerdown',   onDown);
             btn.addEventListener('pointerup',     onUp);
@@ -362,20 +402,37 @@
 
         // Scrollback navigation (works in every set; mobile-only need but
         // harmless on desktop). PgUp/PgDn behaviour over the xterm viewport.
+        // Hold to keep scrolling.
+        const holdScroll = (btn, dir) => {
+            let t = null, iv = null;
+            const stop = () => {
+                if (t)  { clearTimeout(t);   t  = null; }
+                if (iv) { clearInterval(iv); iv = null; }
+            };
+            btn.addEventListener('pointerdown', (ev) => {
+                ev.preventDefault();
+                scrollScreens(dir);
+                t = setTimeout(() => { iv = setInterval(() => scrollScreens(dir), 200); }, 400);
+            });
+            btn.addEventListener('pointerup',     stop);
+            btn.addEventListener('pointercancel', stop);
+            btn.addEventListener('pointerleave',  stop);
+        };
+
         const sUp = document.createElement('button');
         sUp.type = 'button';
         sUp.className = 'scr';
         sUp.textContent = '▲▲';
-        sUp.title = 'Scroll up';
-        sUp.addEventListener('pointerdown', (ev) => { ev.preventDefault(); scrollScreens(-1); });
+        sUp.title = 'Scroll up (hold to keep scrolling)';
+        holdScroll(sUp, -1);
         bar.appendChild(sUp);
 
         const sDn = document.createElement('button');
         sDn.type = 'button';
         sDn.className = 'scr';
         sDn.textContent = '▼▼';
-        sDn.title = 'Scroll down';
-        sDn.addEventListener('pointerdown', (ev) => { ev.preventDefault(); scrollScreens(+1); });
+        sDn.title = 'Scroll down (hold to keep scrolling)';
+        holdScroll(sDn, +1);
         bar.appendChild(sDn);
 
         // Hide button at the end
@@ -395,6 +452,11 @@
 
         document.body.appendChild(bar);
         document.body.classList.add('wovl-on');
+
+        // The bar wraps onto a variable number of rows depending on set and
+        // screen width — measure the real height after layout so the CSS
+        // carves out exactly that much room (no more covered prompt).
+        requestAnimationFrame(refitAll);
     }
 
     function attachSwipe(bar) {
@@ -441,6 +503,7 @@
             document.body.classList.remove('wovl-on');
             if (!pill) document.body.appendChild(buildShowPill());
             try { localStorage.setItem(HIDDEN_KEY, '1'); } catch (_) {}
+            requestAnimationFrame(refitAll);
         } else {
             if (pill) pill.remove();
             if (!document.getElementById('wovl')) rebuildBar();
@@ -462,24 +525,43 @@
     // end up with a black band at the top. visualViewport.resize fires
     // reliably on both Chrome and Firefox mobile; we re-broadcast it as a
     // window resize event so wetty refits the terminal to the real height.
+
+    // On iOS the soft keyboard OVERLAYS the page instead of resizing it:
+    // position:fixed bottom:0 ends up hidden behind the keyboard — exactly
+    // when you need Esc/arrows the most. Translate the bar up by the amount
+    // the visual viewport is covered.
+    function avoidKeyboard() {
+        if (!window.visualViewport) return;
+        const vv = window.visualViewport;
+        const gap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        const t = gap ? ('translateY(-' + gap + 'px)') : '';
+        const bar = document.getElementById('wovl');
+        const pill = document.getElementById('wovl-show');
+        if (bar)  bar.style.transform  = t;
+        if (pill) pill.style.transform = t;
+    }
+
+    function refitAll() {
+        avoidKeyboard();
+        const bar = document.getElementById('wovl');
+        document.documentElement.style.setProperty('--wovl-h', (bar ? bar.offsetHeight : 0) + 'px');
+        try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+    }
+
     function installViewportRefit() {
         if (window.__wovlVPHooked) return;
         window.__wovlVPHooked = true;
 
-        const refit = () => {
-            try { window.dispatchEvent(new Event('resize')); } catch (_) {}
-        };
-
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', refit);
-            window.visualViewport.addEventListener('scroll', refit);
+            window.visualViewport.addEventListener('resize', refitAll);
+            window.visualViewport.addEventListener('scroll', refitAll);
         }
         // Also catch orientation changes explicitly (some Chromium builds
         // delay visualViewport resize until after the next frame).
-        window.addEventListener('orientationchange', () => setTimeout(refit, 200));
+        window.addEventListener('orientationchange', () => setTimeout(refitAll, 200));
         // Initial refit shortly after load to clear the URL-bar gap.
-        setTimeout(refit, 150);
-        setTimeout(refit, 800);
+        setTimeout(refitAll, 150);
+        setTimeout(refitAll, 800);
     }
 
     function ready() {
