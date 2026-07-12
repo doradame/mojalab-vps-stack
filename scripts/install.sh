@@ -124,7 +124,21 @@ if [[ -n "${TOTAL_MEM_MB:-}" ]]; then
     info "Detected ${TOTAL_MEM_MB} MB RAM${CPU_COUNT:+ and ${CPU_COUNT} CPUs} on this host."
 fi
 ask "Zellij memory limit (e.g. 4G, 5120M)" ZELLIJ_MEM_LIMIT "${ZELLIJ_MEM_LIMIT:-${SUGGESTED_MEM}}"
+# Normalise: Docker reads a bare number as BYTES and rejects anything under
+# 6MB ("Minimum memory limit allowed is 6MB"). Assume small numbers mean GB
+# and large ones MB.
+if [[ "$ZELLIJ_MEM_LIMIT" =~ ^[0-9]+$ ]]; then
+    if (( ZELLIJ_MEM_LIMIT <= 64 )); then
+        ZELLIJ_MEM_LIMIT="${ZELLIJ_MEM_LIMIT}G"
+    else
+        ZELLIJ_MEM_LIMIT="${ZELLIJ_MEM_LIMIT}M"
+    fi
+    warn "No unit given — interpreting as ${ZELLIJ_MEM_LIMIT}."
+elif [[ ! "$ZELLIJ_MEM_LIMIT" =~ ^[0-9]+(\.[0-9]+)?[KkMmGg][Bb]?$ ]]; then
+    die "Invalid memory limit '${ZELLIJ_MEM_LIMIT}'. Use e.g. 4G or 5120M."
+fi
 ask "Zellij CPU limit"                     ZELLIJ_CPU_LIMIT "${ZELLIJ_CPU_LIMIT:-${CPU_COUNT:-2}}"
+[[ "$ZELLIJ_CPU_LIMIT" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "Invalid CPU limit '${ZELLIJ_CPU_LIMIT}'. Use e.g. 2 or 1.5."
 
 if ask_yes_no "Set up Telegram notifications for Watchtower?" "y"; then
     ask "Telegram bot token"  TELEGRAM_BOT_TOKEN "${TELEGRAM_BOT_TOKEN:-}"
