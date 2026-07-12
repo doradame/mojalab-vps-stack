@@ -16,7 +16,7 @@ The stack is small on purpose: nine containers, one network, one Caddyfile.
 | **Authelia** | Single sign-on with TOTP 2FA | `auth.{your-domain}` |
 | **Home** | Landing page with links to every service (served by Caddy) | `home.{your-domain}` |
 | **Filestash** | Web file manager | `files.{your-domain}` |
-| **Zellij** | Persistent web terminal + dev container (Node 20, Python, [Claude Code](https://github.com/anthropics/claude-code)) | `term.{your-domain}` |
+| **Zellij** | Persistent web terminal + coding-agent workbench (Node 22, Python 3.13, Claude Code, `update-agents`, `git-ssh-key`) | `term.{your-domain}` |
 | **wetty** | Mobile-friendly terminal (web SSH) with virtual keyboard overlay, attaches to same Zellij session | `mterm.{your-domain}` |
 | **Glances** | System metrics dashboard | `stats.{your-domain}` |
 | **Watchtower** | Update notifications (monitor-only) | _via Telegram bot_ |
@@ -54,7 +54,7 @@ Before you start, you should have:
 
 ## Quickstart (the easy path)
 
-If you'd rather not run the steps below by hand, the repo ships an interactive installer that does most of the work: prompts for domain/email/Telegram/user, optionally creates DNS A records via Cloudflare, generates secrets, hashes the password, renders the Authelia config, waits for DNS propagation, brings the stack up, and prints the Zellij token. It does **not** touch your firewall or install fail2ban — those interact too unpredictably with Docker and provider-side firewalls; configure them yourself (see [Host hardening](#host-hardening)).
+If you'd rather not run the steps below by hand, the repo ships an interactive installer that does most of the work: prompts for domain/email/Telegram/user, suggests Zellij resource limits based on the host's RAM/CPU, optionally creates DNS A records via Cloudflare, generates secrets, hashes the password, renders the Authelia config, waits for DNS propagation, brings the stack up, and prints the Zellij token. It does **not** touch your firewall or install fail2ban — those interact too unpredictably with Docker and provider-side firewalls; configure them yourself (see [Host hardening](#host-hardening)).
 
 ```bash
 git clone https://github.com/doradame/mojalab-vps-stack.git
@@ -62,7 +62,7 @@ cd mojalab-vps-stack
 ./scripts/install.sh
 ```
 
-The installer is idempotent — re-run it after fixing a problem. Read on for the manual path if you prefer to understand each step.
+The installer is idempotent — re-run it after fixing a problem, or after a `git pull` to pick up new options. It backs up the previous `.env` to `.env.bak` before rewriting it and carries over your existing answers and manual overrides (`ALERT_*`, `SMTP_SCHEME`, `ZELLIJ_VERSION`, …) as defaults.
 
 ---
 
@@ -89,8 +89,10 @@ vim .env
 Set:
 - `DOMAIN` — e.g. `lab.example.com`. Your subdomains will be `auth.lab.example.com`, `files.lab.example.com`, etc.
 - `TZ` — your timezone, e.g. `Europe/Rome`.
-- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests and the interactive bot. Leave empty if you'll skip Telegram for now. See [Setting up Telegram](#setting-up-telegram) below for how to obtain both.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests and the interactive bot. Leave empty if you'll skip Telegram for now (the installer then disables Watchtower notifications and puts tgbot in idle — no error spam). See [Setting up Telegram](#setting-up-telegram) below for how to obtain both.
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_SENDER` — used by Authelia to deliver the TOTP enrollment email. Defaults target [Resend](https://resend.com); leave `SMTP_HOST` empty to fall back to the filesystem notifier (codes readable with `docker compose exec authelia cat /config/notification.txt`). On Hetzner port `465` is often blocked outbound — use `587` if you see timeouts.
+- `ZELLIJ_MEM_LIMIT` / `ZELLIJ_CPU_LIMIT` — resource ceiling for the Zellij workbench, where coding agents compile and run tests. Size it to the host: total RAM minus ~3 GB is a good rule (e.g. `5120M` and `4` on an 8 GB / 4-core VPS). Defaults are a conservative `2G` / `2.0`.
+- `ZELLIJ_VERSION` — (optional) the Zellij release baked into the locally-built image. Watchtower cannot watch local images, so bump this yourself now and then and rebuild.
 
 ### 3. Create the six DNS A records
 
@@ -205,18 +207,24 @@ The token is persisted in the `zellij_cache` named volume, so it survives contai
 
 A virtual keyboard overlay sits at the bottom of the wetty page on touch devices: arrows, Tab, Esc, sticky **Ctrl/Alt** (tap = single-shot, long-press = lock), and three swipeable key sets — **zellij** (pane/tab shortcuts), **vim** (motions, save/quit), **F1–F12**. Swipe left/right on the overlay to cycle sets. See [Mobile keyboard overlay](#mobile-keyboard-overlay) below for details.
 
-### Dev container (Node, Python, Claude Code)
+### Dev container (Node 22, Python 3.13, coding agents)
 
-The Zellij container is also a ready-to-use development environment:
+The Zellij container is also a ready-to-use development environment — the workbench where Claude Code, Codex, opencode, Kimi Code, Antigravity (`agy`) and kiro-cli do their thing:
 
-- **Node 20** + global npm prefix at `~/.local` (so `npm install -g` works without sudo)
+- **Node 22** + global npm prefix at `~/.local` (so `npm install -g` works without sudo)
 - **Python 3** + `pipx` (`PIP_USER=1`, `PYTHONUSERBASE=~/.local`)
 - **[Claude Code](https://github.com/anthropics/claude-code)** preinstalled (`@anthropic-ai/claude-code`)
-- **Standard tools**: `git`, `curl`, `jq`, `fd-find`, `ripgrep`, `build-essential`, `socat`
+- **`update-agents`** — one command to install/update the coding agent CLIs (Claude Code, Codex CLI, opencode via npm; Kimi Code via its official installer; Antigravity `agy` and kiro-cli via their own self-updaters). Everything lands in `~/.local/bin`, which shadows the image-baked copies and **persists across rebuilds** — no `docker compose build`, no downtime for the running session. `update-agents --list` shows installed versions.
+- **`git-ssh-key`** — generates a persistent ed25519 key per git forge (stored in `~/.local/share/ssh`, so it survives rebuilds), prints the public key to paste into the forge's settings, and wires up `~/.ssh/config`. `git-ssh-key` targets GitHub, `git-ssh-key gitlab` targets gitlab.com, `git-ssh-key git.mycompany.com` any self-hosted forge. Verify with `git-ssh-key [host] --test`.
+- **Standard tools**: `git`, `gh`, `curl`, `jq`, `fd` (real symlink, works for agents too), `ripgrep`, `sqlite3`, `uv`, `build-essential`, `socat`, `python-is-python3`
 - **API keys persist** across container rebuilds: drop `export ANTHROPIC_API_KEY=…` into `~/.local/share/secrets.env` (mode 600, sourced by `~/.bashrc`)
 - **Project workspace** at `~/workspace` → bind-mounted from the host's `/srv/workspace` (so Filestash can see the projects, but **not** the credentials)
 
 A `docker compose up -d --build zellij` rebuilds the image without losing any of the user state, because everything that matters lives in bind mounts under `${LAB_STATE_DIR}` and the named volumes for Zellij data.
+
+**Updating Zellij itself.** The binary is pinned via `ZELLIJ_VERSION` in `.env` (default `0.44.1`). Watchtower cannot watch locally-built images, so it will never tell you about new Zellij releases — check the [releases page](https://github.com/zellij-org/zellij/releases) occasionally, bump the version, and rebuild with the command above.
+
+**Resource ceiling.** The container's limits come from `.env`: `ZELLIJ_MEM_LIMIT` (default `2G`) and `ZELLIJ_CPU_LIMIT` (default `2.0`). This is where agents compile and run tests, so size it to the host — the installer suggests host RAM minus ~3 GB (e.g. `5120M` and 4 CPUs on an 8 GB / 4-core VPS). Don't lowball the memory: hitting the limit OOM-kills the biggest process in the container, which is often `zellij` itself, taking every session down with it.
 
 ### 11. (Optional) Verify Telegram notifications
 
@@ -371,6 +379,15 @@ docker compose up -d
 docker image prune -f   # remove old images
 ```
 
+**Updating the coding agents.** No rebuild needed — inside the terminal, run:
+
+```bash
+update-agents          # all of them: claude, codex, opencode, kimi, agy, kiro
+update-agents --list   # just show installed versions
+```
+
+Updates land in `~/.local/bin` (persistent), so they survive container rebuilds and don't interrupt the running session. Watchtower does **not** cover the agents nor the locally-built images (zellij, caddy, wetty, tgbot): for Zellij itself, bump `ZELLIJ_VERSION` in `.env` and `docker compose up -d --build zellij`.
+
 **Backing up.** This stack does *not* back up your data. The directories that matter are:
 - `authelia/` (your user DB and TOTP secrets)
 - `/srv/` (whatever services running behind Authelia store there)
@@ -494,7 +511,7 @@ This stack is designed for a **single-user homelab on a public VPS**. It defends
 - **Casual scanners and bots** (catch-all 404, no service banners, HSTS, security headers)
 - **SSH brute-force** on the host (if you install fail2ban yourself — see [Host hardening](#host-hardening))
 - **Login brute-force** on Authelia (built-in regulation: 3 fails → 10 min ban)
-- **Resource exhaustion** from a single misbehaving container (per-service `memory`/`cpu` limits)
+- **Resource exhaustion** from a single misbehaving container (per-service `memory`/`cpu` limits, plus a `pids` limit on the Zellij workbench against accidental fork bombs from agent-run tests)
 - **Lateral movement from a compromised peripheral container to the Docker host** (Watchtower & Glances go through `dockerproxy` with `POST=0`, no direct socket mount)
 
 It does **not** defend against:
@@ -537,7 +554,10 @@ Done:
 - [x] Docker socket proxy in front of Watchtower and Glances (reduce privilege)
 - [x] Mobile-friendly web terminal (wetty + Zellij session sharing)
 - [x] Virtual keyboard overlay for wetty (sticky Ctrl/Alt, swipeable key sets, F-keys)
-- [x] Dev container in Zellij (Node 20, Python, Claude Code, persistent state)
+- [x] Dev container in Zellij (Node 22, Python, Claude Code, persistent state)
+- [x] `update-agents`: one-command install/update for coding agent CLIs (npm / official installers / self-updaters), persistent across rebuilds
+- [x] `git-ssh-key`: per-forge SSH keys (GitHub, GitLab, self-hosted) that survive rebuilds
+- [x] Configurable Zellij resource limits (`ZELLIJ_MEM_LIMIT`/`ZELLIJ_CPU_LIMIT`, auto-suggested by the installer from host RAM/CPU)
 - [x] Bind-mount persistence under `${LAB_STATE_DIR}` (survives image rebuilds, kept out of Filestash's `/srv`)
 - [x] Custom Caddy build with `replace-response` module
 - [x] Interactive Telegram bot (status commands + proactive alerts: disk/RAM/load, SSH & Authelia logins, heartbeat, mute/resume)

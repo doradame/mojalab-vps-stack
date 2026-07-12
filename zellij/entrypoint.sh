@@ -22,7 +22,18 @@ for d in /home/lab/.config/zellij /home/lab/.cache/zellij \
          /home/lab/.config /home/lab/.claude /home/lab/.npm \
          /home/lab/workspace /home/lab/.ssh /ssh-keys; do
     sudo mkdir -p "$d"
-    sudo chown -R lab:lab "$d"
+    # chown -R only when the top dir is not ours yet (first boot). Recursing
+    # into a fat npm cache / ~/.local on every start makes boots very slow.
+    if [[ "$(stat -c '%u' "$d")" != "1000" ]]; then
+        sudo chown -R lab:lab "$d"
+    fi
+done
+# Docker creates nested volume mountpoints (e.g. ~/.local/share for the
+# zellij_data volume) as root, INSIDE dirs the guard above may have skipped.
+# Fix those intermediates non-recursively — that's instant.
+for d in /home/lab/.local/share /home/lab/.local/state /home/lab/.cache; do
+    sudo mkdir -p "$d"
+    [[ "$(stat -c '%u' "$d")" == "1000" ]] || sudo chown lab:lab "$d"
 done
 chmod 700 /home/lab/.ssh /ssh-keys
 
@@ -33,6 +44,12 @@ chmod 700 /home/lab/.ssh /ssh-keys
 mkdir -p /home/lab/.local/state
 [[ -e /home/lab/.local/state/claude.json ]] || : > /home/lab/.local/state/claude.json
 ln -sfn /home/lab/.local/state/claude.json /home/lab/.claude.json
+
+# Re-link the persistent SSH client config (created by `git-ssh-key`):
+# ~/.ssh is wiped on rebuilds, the real config lives in ~/.local/share/ssh.
+if [[ -f /home/lab/.local/share/ssh/config ]]; then
+    ln -sfn /home/lab/.local/share/ssh/config /home/lab/.ssh/config
+fi
 
 # --- Secrets loader: API keys persist across rebuilds -----------------------
 # Put exports here once, e.g.:

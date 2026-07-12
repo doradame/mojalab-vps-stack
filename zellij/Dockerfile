@@ -12,7 +12,10 @@
 # If left empty, the build SKIPS verification (acceptable for a homelab, not for prod).
 # ============================================================================
 
-FROM debian:bookworm-slim
+# Debian 13 "trixie": bookworm went oldstable in Aug 2025 and its standard
+# security support is ending; trixie also ships a current toolchain (Python
+# 3.13, GCC 14) and `gh` in main — this is the dev workbench, it matters.
+FROM debian:trixie-slim
 
 ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
@@ -20,23 +23,46 @@ ARG ZELLIJ_SHA256=""
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget gnupg bash bash-completion sudo procps xz-utils \
         iproute2 socat openssh-server openssh-client \
-        git vim nano less htop ncdu tree jq file man-db unzip zip rsync tmux \
-        ripgrep fd-find \
+        git gh vim nano less htop ncdu tree jq file man-db unzip zip rsync tmux \
+        ripgrep fd-find sqlite3 \
         build-essential pkg-config \
-        python3 python3-pip python3-venv python3-dev pipx \
+        python3 python3-pip python3-venv python3-dev python-is-python3 pipx \
     && mkdir -p /run/sshd \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 20 LTS from NodeSource (Debian's nodejs is too old for modern tooling).
+# Debian renames fd → fdfind. The bashrc alias only covers interactive shells;
+# coding agents run `fd` through `sh -c` and would get "command not found".
+RUN ln -s "$(command -v fdfind)" /usr/local/bin/fd
+
+# uv — the Python package/venv manager modern agents expect. System-wide so
+# it survives ~/.local wipes; self-updates are shadowed into ~/.local/bin.
+RUN curl -LsSf https://astral.sh/uv/install.sh \
+    | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+
+# Node.js 22 LTS from NodeSource (Node 20 went EOL in April 2026; modern
+# agent CLIs — Codex included — expect >= 22).
 RUN set -eux; \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -; \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; \
     apt-get install -y --no-install-recommends nodejs; \
     rm -rf /var/lib/apt/lists/*
 
-# Claude Code CLI (Anthropic). Installed system-wide so it survives rebuilds;
-# user state lives in ~/.claude (persistent volume).
+# Claude Code CLI (Anthropic), baked in as a first-boot convenience only.
+# Day-to-day updates happen with `update-agents` (below), which installs into
+# ~/.local/bin — first in PATH, so it shadows this copy. User state lives in
+# ~/.claude (persistent volume).
 RUN npm install -g @anthropic-ai/claude-code || \
-    echo "claude-code install failed (non-fatal, install manually with: npm i -g @anthropic-ai/claude-code)"
+    echo "claude-code install failed (non-fatal, install manually with: update-agents claude)"
+
+# Agent updater — installs/updates coding CLIs (Claude Code, Codex, opencode,
+# kiro-cli self-updater) into ~/.local so they persist across rebuilds and
+# never require `docker compose build`. Run `update-agents` inside the container.
+COPY update-agents.sh /usr/local/bin/update-agents
+RUN chmod +x /usr/local/bin/update-agents
+
+# Git SSH key helper — generates persistent ed25519 keys for GitHub/GitLab/
+# any forge (~/.local/share/ssh, survives rebuilds) and prints the pub key.
+COPY git-ssh-key.sh /usr/local/bin/git-ssh-key
+RUN chmod +x /usr/local/bin/git-ssh-key
 
 # Install Zellij from official binary release, picking the right arch.
 # Optionally verify SHA256 (set ZELLIJ_SHA256 at build time — must match the

@@ -147,6 +147,8 @@ if [[ -z "$LAB_BANNER_SHOWN" ]]; then
         printf '  ┌────────────────────────────────────────────┐\n'
         printf '  │  %s │\n' "$_line"
         printf '  │  /srv is your shared workspace             │\n'
+        printf '  │  "update-agents" updates coding CLIs       │\n'
+        printf '  │  "git-ssh-key" sets up git over SSH        │\n'
         printf '  └────────────────────────────────────────────┘\n\n'
         printf '\033[0m'
     fi

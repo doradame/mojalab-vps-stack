@@ -7,6 +7,14 @@ set -euo pipefail
 
 : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
 : "${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is required}"
+
+# Telegram skipped at install time → idle instead of hammering the API with a
+# bogus token (every getUpdates would fail and set -e would restart-loop us).
+if [[ "$TELEGRAM_BOT_TOKEN" == "disabled" || "$TELEGRAM_CHAT_ID" == "0" ]]; then
+    echo "$(date -u +%FT%TZ) Telegram disabled (token='disabled' or chat_id=0) — tgbot idling."
+    exec sleep infinity
+fi
+
 GLANCES_URL="${GLANCES_URL:-http://glances:61208}"
 API="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
 

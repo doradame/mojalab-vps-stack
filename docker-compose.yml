@@ -151,6 +151,10 @@ services:
     build:
       context: ./zellij
       dockerfile: Dockerfile
+      args:
+        # Watchtower cannot watch locally-built images: bump this in .env
+        # now and then and rebuild (docker compose up -d --build zellij).
+        ZELLIJ_VERSION: ${ZELLIJ_VERSION:-0.44.1}
     container_name: zellij
     restart: unless-stopped
     environment:
@@ -189,8 +193,16 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '1.5'
+          # This is the dev workbench: coding agents (Claude Code, Codex,
+          # opencode, …) compile and run tests HERE. Size it to the host via
+          # .env — the installer suggests values (host RAM minus ~3G).
+          # NOTE: exceeding the memory limit gets the biggest process
+          # OOM-killed, which is often zellij itself → all sessions lost.
+          memory: ${ZELLIJ_MEM_LIMIT:-2G}
+          cpus: '${ZELLIJ_CPU_LIMIT:-2.0}'
+          # Safety net against accidental fork bombs from agent-run tests:
+          # far above any real build's needs, but keeps the host schedulable.
+          pids: 4096
     logging:
       driver: json-file
       options:
@@ -229,6 +241,14 @@ services:
       - 3000
     depends_on:
       - zellij
+    healthcheck:
+      # The wetty image has no curl/wget; use the node runtime it ships with.
+      # Any HTTP response (even 302) means the server is up.
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/',()=>process.exit(0)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:
@@ -338,7 +358,10 @@ services:
       - WATCHTOWER_MONITOR_ONLY=true
       - WATCHTOWER_SCHEDULE=0 0 5 * * *           # 5:00 AM daily (in $TZ timezone)
       - WATCHTOWER_NOTIFICATION_REPORT=true
-      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      # ${VAR-default} (no colon): install.sh writes WATCHTOWER_NOTIFICATIONS=''
+      # when Telegram is skipped, which disables notifications entirely instead
+      # of spamming errors with a malformed telegram://disabled@… URL.
+      - WATCHTOWER_NOTIFICATIONS=${WATCHTOWER_NOTIFICATIONS-shoutrrr}
       - WATCHTOWER_NOTIFICATION_URL=telegram://${TELEGRAM_BOT_TOKEN}@telegram?chats=${TELEGRAM_CHAT_ID}
       - WATCHTOWER_NOTIFICATION_TEMPLATE_FILE=/notification.tpl
     volumes:
