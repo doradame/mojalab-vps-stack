@@ -357,9 +357,10 @@ Mobile soft keyboards don't ship Esc, Tab, arrows, Ctrl, or function keys — ex
 - **Sticky modifiers** — tap `Ctrl` once for single-shot (next key is sent with Ctrl, then Ctrl auto-releases). Long-press (≥0.5s) to **lock** Ctrl on until tapped off again. Same for `Alt`. Visual states: `armed` (orange pulse) and `locked` (solid red).
 - **Four key sets** (swipe left/right on the overlay to cycle, or tap the indicator):
   - **shell** — Ctrl+C/D/R/L/Z one-tap combos, `attach` to join the desktop zellij session
-  - **zellij** — new pane, floating panes, pane/tab/resize modes, detach
+  - **zellij** — new pane, floating panes, **session manager** (list/switch sessions), pane/tab/resize modes, detach
   - **vim** — `:`, `Esc`, `:w`, `:wq`, `:q!`, `gg`, `G`, `dd`, `yy`, motions
   - **fkeys** — `F1`–`F12`
+- **Sticky modifiers work with the soft keyboard too**: tap `Ctrl`, then type `o` on your phone's keyboard → the terminal receives a real Ctrl+O. (IME composition is intercepted at document level — mobile keyboards never deliver plain keydown events.)
 - **Keyboard-aware**: the bar rides on top of the soft keyboard when it opens (iOS overlays the page instead of resizing it — without this the buttons would hide exactly when you type), and the terminal height follows the bar's real height, so the prompt is never covered no matter how many rows the buttons wrap onto.
 
 **Mobile input hardening.** The overlay also disables the native keyboard's autocorrect, autocapitalize and IME composition on xterm's hidden textarea. Without this, mobile keyboards treat your shell input as English prose: `cd` becomes `Cd`, swipe-typing inserts random spaces, and a single Backspace deletes the entire word being composed instead of one byte. With it, every keystroke goes through as raw bytes, like a desktop terminal.

@@ -62,12 +62,13 @@
                 { label: 'ESC',    key: K('Escape', 'Escape', 27) },
                 { label: 'Ctrl', ctrl: true, cls: 'mod' },
                 { label: 'Alt',  alt:  true, cls: 'mod' },
-                { label: 'new',    seq: '\x1bn', cls: 'act' },   // Alt+n — new pane
-                { label: 'float',  seq: '\x1bf', cls: 'act' },   // Alt+f — toggle floating panes
-                { label: 'pane',   seq: '\x10',  cls: 'mod' },   // Ctrl+p — pane mode
-                { label: 'tab',    seq: '\x14',  cls: 'mod' },   // Ctrl+t — tab mode
-                { label: 'resize', seq: '\x0e',  cls: 'mod' },   // Ctrl+n — resize mode
-                { label: 'detach', seq: '\x0fd', cls: 'util' },  // Ctrl+o, d — detach session
+                { label: 'new',      seq: '\x1bn', cls: 'act' },   // Alt+n — new pane
+                { label: 'float',    seq: '\x1bf', cls: 'act' },   // Alt+f — toggle floating panes
+                { label: 'sessions', seq: '\x0fw', cls: 'act' },   // Ctrl+o, w — session manager (list/switch)
+                { label: 'pane',     seq: '\x10',  cls: 'mod' },   // Ctrl+p — pane mode
+                { label: 'tab',      seq: '\x14',  cls: 'mod' },   // Ctrl+t — tab mode
+                { label: 'resize',   seq: '\x0e',  cls: 'mod' },   // Ctrl+n — resize mode
+                { label: 'detach',   seq: '\x0fd', cls: 'util' },  // Ctrl+o, d — detach session
                 { label: '↑', cls: 'arr', rep: true, key: ARROW_UP    },
                 { label: '↓', cls: 'arr', rep: true, key: ARROW_DOWN  },
                 { label: '←', cls: 'arr', rep: true, key: ARROW_LEFT  },
@@ -236,15 +237,24 @@
         }
     }
 
+    // Re-entrancy guard: bytes we inject ourselves must NOT be captured by
+    // the document-level modifier interceptor below.
+    let injecting = false;
+
     function sendSeqRaw(seq) {
         const ta = findTA();
         if (!ta) return;
         ta.focus();
-        try { document.execCommand('insertText', false, seq); return; } catch (_) {}
+        injecting = true;
         try {
-            ta.value += seq;
-            ta.dispatchEvent(new InputEvent('input', { data: seq, inputType: 'insertText', bubbles: true }));
-        } catch (_) {}
+            try { document.execCommand('insertText', false, seq); return; } catch (_) {}
+            try {
+                ta.value += seq;
+                ta.dispatchEvent(new InputEvent('input', { data: seq, inputType: 'insertText', bubbles: true }));
+            } catch (_) {}
+        } finally {
+            injecting = false;
+        }
     }
 
     function sendSeq(seq) {
@@ -271,37 +281,97 @@
         if (mods.alt.state  === 'armed') setMod('alt',  'off');
     }
 
-    function installModInterceptor() {
-        const ta = findTA();
-        if (!ta || ta.__wovlModHooked) return;
-        ta.__wovlModHooked = true;
+    function modsActive() {
+        return mods.ctrl.state !== 'off' || mods.alt.state !== 'off';
+    }
 
-        ta.addEventListener('beforeinput', (ev) => {
-            if (mods.ctrl.state === 'off' && mods.alt.state === 'off') return;
-            const data = ev.data || '';
-            if (!data || data.length !== 1) {
-                if (mods.ctrl.state === 'armed') setMod('ctrl', 'off');
-                if (mods.alt.state  === 'armed') setMod('alt',  'off');
+    function disarmOneshots() {
+        if (mods.ctrl.state === 'armed') setMod('ctrl', 'off');
+        if (mods.alt.state  === 'armed') setMod('alt',  'off');
+    }
+
+    // ---- Sticky-modifier interception ---------------------------------------
+    // Soft keyboards (Gboard, iOS) deliver text via IME composition: keydown
+    // arrives as 'Unidentified'/keyCode 229 and beforeinput is often NOT
+    // cancelable, so an element-level preventDefault can't stop the letter
+    // from reaching xterm (tap Ctrl, type 'o' → a literal 'o' was printed).
+    // Intercept at DOCUMENT level in the CAPTURE phase instead: it runs
+    // before xterm's own textarea listeners, and stopImmediatePropagation()
+    // always works even when preventDefault() doesn't.
+    let swallowInputUntil = 0;
+
+    function interceptTextEvent(ev) {
+        if (injecting || !modsActive()) return;
+        const ta = findTA();
+        if (!ta || ev.target !== ta) return;
+        const data = ev.data || '';
+        if (!data) {
+            // Deletions / non-text input while armed: pass through, one-shots off.
+            disarmOneshots();
+            return;
+        }
+        // Swipe-typing can deliver a whole word: apply the modifier to the
+        // first char, keep the rest as-is.
+        const out = consumeModsForByte(data[0]) + data.slice(1);
+        ev.stopImmediatePropagation();
+        if (ev.cancelable) ev.preventDefault();
+        // Composition may have already dropped text into the textarea — clear
+        // it so xterm never picks it up.
+        try { ta.value = ''; } catch (_) {}
+        if (ev.type === 'beforeinput') {
+            // A paired non-cancelable 'input' may still follow — swallow it.
+            swallowInputUntil = Date.now() + 150;
+        }
+        sendSeqRaw(out);
+        // If the char came from an IME composition, reset it (blur/focus)
+        // so the keyboard doesn't keep composing on top of the eaten letter.
+        if ((ev.inputType || '').indexOf('Composition') !== -1) {
+            try { ta.blur(); ta.focus(); } catch (_) {}
+        }
+    }
+
+    function installModInterceptor() {
+        if (window.__wovlModHooked) return;
+        window.__wovlModHooked = true;
+
+        document.addEventListener('beforeinput', interceptTextEvent, true);
+
+        document.addEventListener('input', (ev) => {
+            if (injecting) return;
+            if (Date.now() < swallowInputUntil && ev.target === findTA()) {
+                swallowInputUntil = 0;
+                ev.stopImmediatePropagation();
+                if (ev.cancelable) ev.preventDefault();
+                try { ev.target.value = ''; } catch (_) {}
                 return;
             }
-            const transformed = consumeModsForByte(data);
-            if (transformed !== data) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                sendSeqRaw(transformed);
-            }
+            interceptTextEvent(ev);
         }, true);
 
-        ta.addEventListener('keydown', (ev) => {
-            if (mods.ctrl.state === 'off' && mods.alt.state === 'off') return;
-            if (['Control','Shift','Alt','Meta'].includes(ev.key)) return;
+        // While a modifier is armed, keep composition machinery away from
+        // xterm — the beforeinput/input path above handles the payload.
+        ['compositionstart', 'compositionupdate', 'compositionend'].forEach((t) => {
+            document.addEventListener(t, (ev) => {
+                if (injecting || !modsActive()) return;
+                if (ev.target !== findTA()) return;
+                ev.stopImmediatePropagation();
+            }, true);
+        });
+
+        // Physical keyboards (desktop, bluetooth on tablet): real keydown
+        // with a single-char key. Cancel it and inject the transformed byte.
+        document.addEventListener('keydown', (ev) => {
+            if (injecting || !modsActive()) return;
+            if (ev.target !== findTA()) return;
+            if (['Control', 'Shift', 'Alt', 'Meta'].includes(ev.key)) return;
+            if (ev.key === 'Unidentified' || ev.keyCode === 229) return; // IME — handled above
             if (ev.key && ev.key.length === 1) {
-                const transformed = consumeModsForByte(ev.key);
-                if (transformed !== ev.key) {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    sendSeqRaw(transformed);
-                }
+                const out = consumeModsForByte(ev.key);
+                ev.stopImmediatePropagation();
+                ev.preventDefault();
+                sendSeqRaw(out);
+            } else {
+                disarmOneshots();
             }
         }, true);
     }
