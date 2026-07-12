@@ -96,17 +96,25 @@ update_agent() {
     case "$method" in
     npm)
         echo "${BOLD}→ ${name}${RESET}  (npm ${src})"
-        if npm install -g "${src}@latest" --no-fund --no-audit; then
-            hash -r
-            after=$(version_of "$cmd" || true)
-            if [[ -n "$before" && "$before" == "$after" ]]; then
-                ok "${name} already up to date (${after})"
-            else
-                ok "${name}: ${before:-not installed} → ${after:-?}"
+        if ! npm install -g "${src}@latest" --no-fund --no-audit; then
+            # npm's ENOTEMPTY rename bug: stale files inside the old package
+            # dir (common after Node major bumps). The package dir holds no
+            # user state (that lives in ~/.claude, ~/.config, …), so blow the
+            # old copy and its temp dirs away and retry once.
+            pkgdir="${NPM_CONFIG_PREFIX}/lib/node_modules/${src}"
+            warn "npm install failed — clearing ${pkgdir} and retrying once…"
+            rm -rf "$pkgdir" "$(dirname "$pkgdir")/.$(basename "$pkgdir")-"* 2>/dev/null
+            if ! npm install -g "${src}@latest" --no-fund --no-audit; then
+                fail "npm install failed for ${src}"
+                return 1
             fi
+        fi
+        hash -r
+        after=$(version_of "$cmd" || true)
+        if [[ -n "$before" && "$before" == "$after" ]]; then
+            ok "${name} already up to date (${after})"
         else
-            fail "npm install failed for ${src}"
-            return 1
+            ok "${name}: ${before:-not installed} → ${after:-?}"
         fi
         ;;
     curl)
