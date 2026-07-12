@@ -133,3 +133,6 @@ node_modules/
 __pycache__/
 *.py[cod]
 temp_specifiche.md
+
+# Blog article draft (published on mojalab.com, not part of the stack)
+article-browser-first-homelab.md
