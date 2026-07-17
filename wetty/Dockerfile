@@ -2,7 +2,10 @@
 # wetty wrapper image — drops a tolerant SSH client config so the wetty user
 # can ssh into the zellij sidecar without manual host-key acceptance.
 # ============================================================================
-FROM wettyoss/wetty:latest
+# wetty publishes no current version tags (semver stops at 3.0.0, 'latest'
+# tracks main), so we pin by digest. To update:
+#   curl -fsS https://hub.docker.com/v2/repositories/wettyoss/wetty/tags/latest | jq -r .digest
+FROM wettyoss/wetty:latest@sha256:7423b3d40ba25521105bb2796a0de903fd52dee6c20f6983b5ae145e29131aa9
 
 USER root
 

@@ -1,0 +1,9 @@
+{
+    "general": {
+        "display_hidden": true,
+        "filepage_default_view": "list",
+        "filepage_default_sort": "date",
+        "upload_button": true,
+        "refresh_after_upload": true
+    }
+}

@@ -45,8 +45,10 @@ ENV_FILE="$(dirname "$0")/../.env"
 SMTP_PASSWORD_FILE="${SECRETS_DIR}/smtp_password"
 
 if [[ -f "${ENV_FILE}" ]]; then
-    # shellcheck disable=SC1090
-    set -a; source "${ENV_FILE}"; set +a
+    set -a
+    # shellcheck source=/dev/null
+    source "${ENV_FILE}"
+    set +a
 fi
 
 if [[ -n "${SMTP_PASSWORD:-}" ]]; then

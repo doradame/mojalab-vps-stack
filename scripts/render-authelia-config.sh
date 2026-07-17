@@ -26,8 +26,8 @@ if [[ ! -f "${TEMPLATE}" ]]; then
     exit 1
 fi
 
-# shellcheck disable=SC1090
 set -a
+# shellcheck source=/dev/null
 source "${ENV_FILE}"
 set +a
 

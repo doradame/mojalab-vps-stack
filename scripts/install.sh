@@ -29,16 +29,15 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 ENV_EXAMPLE="${ROOT_DIR}/.env.example"
 USERS_DB="${ROOT_DIR}/authelia/users_database.yml"
-USERS_DB_EXAMPLE="${ROOT_DIR}/authelia/users_database.yml.example"
 
 cd "${ROOT_DIR}"
 
 # --- UI helpers ---------------------------------------------------------------
 if [[ -t 1 ]]; then
-    BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'
+    BOLD=$'\033[1m'; RED=$'\033[31m'; GREEN=$'\033[32m'
     YELLOW=$'\033[33m'; BLUE=$'\033[34m'; RESET=$'\033[0m'
 else
-    BOLD=""; DIM=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; RESET=""
+    BOLD=""; RED=""; GREEN=""; YELLOW=""; BLUE=""; RESET=""
 fi
 
 step()  { echo ""; echo "${BOLD}${BLUE}==>${RESET} ${BOLD}$*${RESET}"; }
@@ -87,6 +86,7 @@ command -v openssl >/dev/null 2>&1 || die "openssl is required."
 command -v envsubst >/dev/null 2>&1 || die "envsubst (gettext-base) is required. apt-get install gettext-base"
 command -v dig >/dev/null 2>&1 || warn "dig not found — DNS verification will be limited."
 command -v curl >/dev/null 2>&1 || die "curl is required."
+command -v jq >/dev/null 2>&1 || die "jq is required. apt-get install jq"
 
 ok "Docker $(docker --version | awk '{print $3}' | tr -d ',')"
 ok "Compose $(docker compose version --short 2>/dev/null || echo unknown)"
@@ -97,8 +97,10 @@ step "Configuration"
 # Reuse existing .env if present
 if [[ -f "$ENV_FILE" ]]; then
     info "Found existing .env — values shown as defaults."
-    # shellcheck disable=SC1090
-    set -a; source "$ENV_FILE"; set +a
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
 fi
 
 ask "Your base domain (e.g. lab.example.com)"   DOMAIN          "${DOMAIN:-}"
@@ -273,18 +275,24 @@ if $DNS_VIA_CF; then
         # Look up existing record
         existing=$(curl -fsS -H "Authorization: Bearer ${CF_API_TOKEN}" \
             "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=${fqdn}" \
-            | grep -o '"id":"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
-        body=$(printf '{"type":"A","name":"%s","content":"%s","ttl":120,"proxied":false}' "$fqdn" "$PUBLIC_IP")
+            | jq -r '.result[0].id // empty' 2>/dev/null || true)
+        body=$(jq -n --arg name "$fqdn" --arg ip "$PUBLIC_IP" \
+            '{type: "A", name: $name, content: $ip, ttl: 120, proxied: false}')
         if [[ -n "$existing" ]]; then
-            curl -fsS -X PUT -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            resp=$(curl -fsS -X PUT -H "Authorization: Bearer ${CF_API_TOKEN}" \
                 -H "Content-Type: application/json" --data "$body" \
-                "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${existing}" >/dev/null \
-                && ok "Updated ${fqdn}" || warn "Update failed for ${fqdn}"
+                "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${existing}" || true)
+            verb="Update"
         else
-            curl -fsS -X POST -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            resp=$(curl -fsS -X POST -H "Authorization: Bearer ${CF_API_TOKEN}" \
                 -H "Content-Type: application/json" --data "$body" \
-                "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" >/dev/null \
-                && ok "Created ${fqdn}" || warn "Create failed for ${fqdn}"
+                "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" || true)
+            verb="Create"
+        fi
+        if jq -e '.success == true' <<<"$resp" >/dev/null 2>&1; then
+            ok "${verb}d ${fqdn}"
+        else
+            warn "${verb} failed for ${fqdn}: $(jq -r '.errors[0].message // "no response"' <<<"$resp" 2>/dev/null || echo 'no response')"
         fi
     done
 else
@@ -402,8 +410,9 @@ deadline=$((SECONDS + 300))
 all_ok=false
 while (( SECONDS < deadline )); do
     # State is "running"/"exited"/etc; Status contains "(healthy)", "(unhealthy)", "(health: starting)" or nothing.
+    # One-shot init helpers (e.g. filestash-init) exit 0 by design — skip them.
     bad=$(docker compose ps --format '{{.Name}}|{{.State}}|{{.Status}}' \
-        | awk -F'|' '$2 != "running" || $3 ~ /unhealthy|health: starting/' || true)
+        | awk -F'|' '$1 !~ /-init$/ && ($2 != "running" || $3 ~ /unhealthy|health: starting/)' || true)
     if [[ -z "$bad" ]]; then
         all_ok=true; break
     fi

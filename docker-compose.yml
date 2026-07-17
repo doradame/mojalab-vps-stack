@@ -110,10 +110,47 @@ services:
   # --------------------------------------------------------------------------
   # Filestash — the workbench surface. Web file manager with in-browser editing.
   # --------------------------------------------------------------------------
+
+  # Init helper: merges filestash/config-overrides.json (git-tracked UI
+  # preferences: list view with size+mtime, sort by date, show hidden files)
+  # into the runtime config.json BEFORE filestash starts. The runtime config
+  # holds secrets (admin hash, secret key) so it can't live in git; deep-merge
+  # lets us version only the harmless UI bits. Idempotent on every start.
+  # yq image (alpine) because the official jq image is FROM scratch — no shell.
+  filestash-init:
+    image: mikefarah/yq:4
+    container_name: filestash-init
+    user: "0"
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        mkdir -p /state/config
+        cd /state/config
+        [ -s config.json ] || echo '{}' > config.json
+        owner="$$(stat -c '%u:%g' config.json)"
+        yq -p=json -o=json eval-all 'select(fileIndex==0) * select(fileIndex==1)' \
+            config.json /overrides.json > config.json.tmp
+        mv config.json.tmp config.json
+        chown "$$owner" config.json
+        echo "filestash config.json merged with overrides"
+    volumes:
+      - filestash_data:/state
+      - ./filestash/config-overrides.json:/overrides.json:ro
+    restart: "no"
+
   filestash:
-    image: machines/filestash:latest
+    # Filestash publishes no stable version tags (only 'latest' + stale commit
+    # hashes), so we pin by digest. To update: check the release notes, then
+    #   curl -fsS https://hub.docker.com/v2/repositories/machines/filestash/tags/latest | jq -r .digest
+    # and replace the digest below.
+    image: machines/filestash:latest@sha256:af215fc7a8ac25e3689d70ba4df6e4961d49fb13fd5bbe9f718717feabc984b1
     container_name: filestash
     restart: unless-stopped
+    depends_on:
+      filestash-init:
+        condition: service_completed_successfully
     environment:
       - APPLICATION_URL=files.${DOMAIN}
       - TZ=${TZ:-Europe/Rome}
@@ -265,7 +302,11 @@ services:
   # Replaces direct mount of /var/run/docker.sock into those services.
   # --------------------------------------------------------------------------
   dockerproxy:
-    image: tecnativa/docker-socket-proxy:latest
+    # Pinned for reproducibility. NOTE: Watchtower's monitor-only digest check
+    # only sees movement on the *pinned* tag, so new releases of these pinned
+    # images won't show up in the daily digest — check upstream release pages
+    # when bumping versions here.
+    image: tecnativa/docker-socket-proxy:v0.4.2
     container_name: dockerproxy
     restart: unless-stopped
     environment:
@@ -306,7 +347,7 @@ services:
   # Glances — the dashboard pane. System metrics, container stats, network I/O.
   # --------------------------------------------------------------------------
   glances:
-    image: nicolargo/glances:latest-full
+    image: nicolargo/glances:4.5.5-full
     container_name: glances
     restart: unless-stopped
     pid: host
@@ -348,7 +389,7 @@ services:
   # See the article for why: https://mojalab.com/browser-first-homelab/
   # --------------------------------------------------------------------------
   watchtower:
-    image: containrrr/watchtower:latest
+    image: containrrr/watchtower:1.7.1
     container_name: watchtower
     restart: unless-stopped
     environment:

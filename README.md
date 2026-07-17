@@ -1,5 +1,7 @@
 # mojalab-vps-stack
 
+[![CI](https://github.com/doradame/mojalab-vps-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/doradame/mojalab-vps-stack/actions/workflows/ci.yml)
+
 > A browser-first homelab on a single VPS. Files, terminal, services — all behind one SSO+2FA gate.
 
 This repository is a working Docker Compose stack you can clone, configure, and deploy on any reasonably-sized VPS — a homelab where every useful thing is reachable from a browser, behind a real authentication gate, on a server you fully control.
@@ -373,14 +375,16 @@ Source: [`caddy/overlay/wetty-overlay.js`](./caddy/overlay/wetty-overlay.js), [`
 
 ## Daily operations
 
-**Updating containers.** When Watchtower's daily digest tells you something has a new version, read the project's release notes, then on the VPS:
+**Updating containers.** Upstream images are pinned in `docker-compose.yml` — version tags where the project publishes them (Authelia, Glances, Watchtower, docker-socket-proxy), digests where it only ships `latest` (Filestash, and the wetty base image in `wetty/Dockerfile`). To update: check the project's release notes, bump the tag or digest (each pinned image has a comment saying how), then on the VPS:
 
 ```bash
 cd mojalab-vps-stack
 docker compose pull
-docker compose up -d
+docker compose up -d --build
 docker image prune -f   # remove old images
 ```
+
+Note that Watchtower's daily digest only reports movement on the *pinned* tags, so new upstream releases won't show up there — checking release pages when you feel like updating is part of the deal.
 
 **Updating the coding agents.** No rebuild needed — inside the terminal, run:
 
@@ -496,6 +500,8 @@ Reload sshd. Optional but useful: pick a non-default port and update the firewal
 
 **Filestash shows "Backend not configured".** Filestash needs a one-time admin setup the first time you reach it. Visit `files.lab.example.com/admin` (yes, after Authelia auth), set an admin password, then add a "Local backend" pointing at `/mnt/data` (which is mapped to `/srv` on the host).
 
+**Filestash UI defaults** (list view with file size and modification time, sorted by date, hidden files visible) come from [`filestash/config-overrides.json`](./filestash/config-overrides.json), which a tiny init container deep-merges into the runtime config on every start — your admin password and backend connections are never touched. Edit that file and `docker compose up -d filestash` to change the defaults. Note: Filestash is storage-agnostic, so it doesn't display Unix owners — use `ll` in the terminal for that.
+
 **Zellij web client says "Invalid token".** Generate a new one with `docker compose exec zellij zellij web --create-token`.
 
 **Watchtower doesn't send Telegram messages.** Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`. Test with `docker compose exec watchtower /watchtower --run-once --debug`. Make sure you've sent at least one message *to* the bot (not from it) before trying — bots can't initiate conversations.
@@ -520,7 +526,7 @@ This stack is designed for a **single-user homelab on a public VPS**. It defends
 It does **not** defend against:
 
 - A compromised Authelia password + TOTP seed (game over for everything behind the gate)
-- Supply-chain attacks on upstream Docker images (use `:latest` consciously, watch the digest)
+- Supply-chain attacks on upstream Docker images (versions are pinned to tags/digests, which buys reproducibility — but a compromised upstream release still gets in the day you bump the pin)
 - Kernel-level container escapes (single Linux kernel, single trust boundary)
 - An attacker who already has shell on the host
 

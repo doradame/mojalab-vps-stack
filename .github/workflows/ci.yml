@@ -1,0 +1,45 @@
+# ============================================================================
+# CI — keeps the ~2800 lines of custom bash/Dockerfiles honest.
+# Three cheap checks: shellcheck, compose validation, image builds.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint shell scripts
+        # zellij/bashrc is excluded on purpose: it's an interactive rc file
+        # (PS1, aliases), not a script, and trips style checks by design.
+        run: |
+          shellcheck -S warning \
+            scripts/*.sh \
+            zellij/entrypoint.sh zellij/update-agents.sh zellij/git-ssh-key.sh \
+            tgbot/*.sh
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose file against the example env
+        run: docker compose --env-file .env.example config -q
+
+  build-images:
+    name: build ${{ matrix.context }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        context: [caddy, zellij, wetty, tgbot]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build ./${{ matrix.context }}

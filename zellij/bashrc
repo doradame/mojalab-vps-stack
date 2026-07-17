@@ -16,8 +16,10 @@ esac
 # and ruins browser-native touch scroll, making the phone unusable. Instead,
 # the user gets a plain bash with full xterm.js scrollback and can join the
 # desktop session manually with the `a` alias when needed.
-alias a='zellij attach -c main'
-alias attach='zellij attach -c main'
+alias a='attach'
+# attach [name] — join a zellij session (default 'main'). Running two agents
+# on two projects? Use named sessions: `attach projA`, `attach projB`.
+attach() { zellij attach -c "${1:-main}"; }
 
 if [[ -n "${SSH_CONNECTION:-}" && -z "${ZELLIJ:-}" && -z "${WETTY:-}" ]] \
         && command -v zellij >/dev/null 2>&1; then
