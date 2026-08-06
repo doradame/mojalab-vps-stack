@@ -6,7 +6,7 @@
 
 This repository is a working Docker Compose stack you can clone, configure, and deploy on any reasonably-sized VPS — a homelab where every useful thing is reachable from a browser, behind a real authentication gate, on a server you fully control.
 
-The stack is small on purpose: nine containers, one network, one Caddyfile.
+The stack is small on purpose: ten containers (one a one-shot initializer), one network, one Caddyfile.
 
 📖 **The story behind it:** [Browser-first VPS for coding agents](https://mojalab.com/browser-first-vps-for-coding-agents/) — the *why*, the design decisions, and the war stories (OOM killers, mobile IME quirks, supply-chain traps). This README is the *how*.
 
