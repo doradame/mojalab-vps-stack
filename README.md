@@ -8,6 +8,8 @@ This repository is a working Docker Compose stack you can clone, configure, and 
 
 The stack is small on purpose: nine containers, one network, one Caddyfile.
 
+📖 **The story behind it:** [Browser-first VPS for coding agents](https://mojalab.com/browser-first-vps-for-coding-agents/) — the *why*, the design decisions, and the war stories (OOM killers, mobile IME quirks, supply-chain traps). This README is the *how*.
+
 ---
 
 ## What's in the box

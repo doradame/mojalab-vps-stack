@@ -5,7 +5,7 @@
 # with SSO+2FA on every service.
 #
 # Companion repository for the article:
-# https://mojalab.com/browser-first-homelab/
+# https://mojalab.com/browser-first-vps-for-coding-agents/
 #
 # Stack:
 #   - Caddy            reverse proxy + automatic HTTPS
@@ -386,7 +386,7 @@ services:
   # --------------------------------------------------------------------------
   # Watchtower — the night watch. Monitor-only, daily Telegram digest.
   # IMPORTANT: This config does NOT auto-update containers. By design.
-  # See the article for why: https://mojalab.com/browser-first-homelab/
+  # See the article for why: https://mojalab.com/browser-first-vps-for-coding-agents/
   # --------------------------------------------------------------------------
   watchtower:
     image: containrrr/watchtower:1.7.1
