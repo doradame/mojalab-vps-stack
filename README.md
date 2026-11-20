@@ -6,7 +6,7 @@
 
 This repository is a working Docker Compose stack you can clone, configure, and deploy on any reasonably-sized VPS — a homelab where every useful thing is reachable from a browser, behind a real authentication gate, on a server you fully control.
 
-The stack is small on purpose: ten containers (one a one-shot initializer), one network, one Caddyfile.
+The stack is small on purpose: nine containers (one a one-shot initializer), one network, one Caddyfile.
 
 📖 **The story behind it:** [Browser-first VPS for coding agents](https://mojalab.com/browser-first-vps-for-coding-agents/) — the *why*, the design decisions, and the war stories (OOM killers, mobile IME quirks, supply-chain traps). This README is the *how*.
 
@@ -23,9 +23,8 @@ The stack is small on purpose: ten containers (one a one-shot initializer), one 
 | **Zellij** | Persistent web terminal + coding-agent workbench (Node 22, Python 3.13, Claude Code, `update-agents`, `git-ssh-key`) | `term.{your-domain}` |
 | **wetty** | Mobile-friendly terminal (web SSH) with virtual keyboard overlay, attaches to same Zellij session | `mterm.{your-domain}` |
 | **Glances** | System metrics dashboard | `stats.{your-domain}` |
-| **Watchtower** | Update notifications (monitor-only) | _via Telegram bot_ |
 | **tgbot** | Interactive Telegram bot: status commands + proactive alerts (disk/RAM/load, SSH/Authelia logins, heartbeat) | _Telegram_ |
-| **dockerproxy** | Read-only Docker socket for Watchtower & Glances | _internal_ |
+| **dockerproxy** | Read-only Docker socket for Glances & tgbot | _internal_ |
 
 ---
 
@@ -51,7 +50,7 @@ Before you start, you should have:
 1. **A VPS running Ubuntu 22.04 or 24.04** (or any modern Linux with systemd and Docker support). Tested on Hetzner CX22 (€4.51/month, Falkenstein/Helsinki). Should work on DigitalOcean, OVH, Linode, etc.
 2. **A domain you control**, with the ability to add A records. You'll create six subdomains: `auth.{domain}`, `home.{domain}`, `files.{domain}`, `term.{domain}`, `mterm.{domain}`, `stats.{domain}`. All six must point to your VPS public IP.
 3. **Docker and Docker Compose v2 installed** on the VPS. If your VPS is bare, install Docker Engine following the [official guide](https://docs.docker.com/engine/install/).
-4. **A Telegram bot** for Watchtower notifications. Talk to [@BotFather](https://t.me/BotFather) to create one. Optional but recommended.
+4. **A Telegram bot** for status commands and alerts. Talk to [@BotFather](https://t.me/BotFather) to create one. Optional but recommended.
 5. **An authenticator app** on your phone (Aegis, Authy, 1Password, Google Authenticator) for the TOTP second factor.
 
 ---
@@ -93,10 +92,10 @@ vim .env
 Set:
 - `DOMAIN` — e.g. `lab.example.com`. Your subdomains will be `auth.lab.example.com`, `files.lab.example.com`, etc.
 - `TZ` — your timezone, e.g. `Europe/Rome`.
-- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for Watchtower digests and the interactive bot. Leave empty if you'll skip Telegram for now (the installer then disables Watchtower notifications and puts tgbot in idle — no error spam). See [Setting up Telegram](#setting-up-telegram) below for how to obtain both.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — for the interactive bot and its alerts. If you skip Telegram, the installer writes placeholder values that put tgbot in idle — no error spam. See [Setting up Telegram](#setting-up-telegram) below for how to obtain both.
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_SENDER` — used by Authelia to deliver the TOTP enrollment email. Defaults target [Resend](https://resend.com); leave `SMTP_HOST` empty to fall back to the filesystem notifier (codes readable with `docker compose exec authelia cat /config/notification.txt`). On Hetzner port `465` is often blocked outbound — use `587` if you see timeouts.
 - `ZELLIJ_MEM_LIMIT` / `ZELLIJ_CPU_LIMIT` — resource ceiling for the Zellij workbench, where coding agents compile and run tests. Size it to the host: total RAM minus ~3 GB is a good rule (e.g. `5120M` and `4` on an 8 GB / 4-core VPS). Defaults are a conservative `2G` / `2.0`.
-- `ZELLIJ_VERSION` — (optional) the Zellij release baked into the locally-built image. Watchtower cannot watch local images, so bump this yourself now and then and rebuild.
+- `ZELLIJ_VERSION` — (optional) the Zellij release baked into the locally-built image. Nothing notifies you about new releases, so bump this yourself now and then and rebuild.
 
 ### 3. Create the six DNS A records
 
@@ -226,21 +225,13 @@ The Zellij container is also a ready-to-use development environment — the work
 
 A `docker compose up -d --build zellij` rebuilds the image without losing any of the user state, because everything that matters lives in bind mounts under `${LAB_STATE_DIR}` and the named volumes for Zellij data.
 
-**Updating Zellij itself.** The binary is pinned via `ZELLIJ_VERSION` in `.env` (default `0.44.1`). Watchtower cannot watch locally-built images, so it will never tell you about new Zellij releases — check the [releases page](https://github.com/zellij-org/zellij/releases) occasionally, bump the version, and rebuild with the command above.
+**Updating Zellij itself.** The binary is pinned via `ZELLIJ_VERSION` in `.env` (default `0.44.1`). Nothing will tell you about new Zellij releases — check the [releases page](https://github.com/zellij-org/zellij/releases) occasionally, bump the version, and rebuild with the command above.
 
 **Resource ceiling.** The container's limits come from `.env`: `ZELLIJ_MEM_LIMIT` (default `2G`) and `ZELLIJ_CPU_LIMIT` (default `2.0`). This is where agents compile and run tests, so size it to the host — the installer suggests host RAM minus ~3 GB (e.g. `5120M` and 4 CPUs on an 8 GB / 4-core VPS). Don't lowball the memory: hitting the limit OOM-kills the biggest process in the container, which is often `zellij` itself, taking every session down with it.
 
 ### 11. (Optional) Verify Telegram notifications
 
-Watchtower runs its first check at 5 AM UTC the next day. To verify the Telegram setup works *now*, send a test notification:
-
-```bash
-docker compose exec watchtower /watchtower --run-once --debug
-```
-
-You should receive a Telegram message within a few seconds.
-
-Then send `/ping` to your bot from Telegram — the **tgbot** service should answer immediately. Try `/help` for the full command list (see [Telegram bot](#telegram-bot) below).
+When **tgbot** starts it sends a "bot online" message to your chat. Send `/ping` to your bot from Telegram — it should answer immediately. Try `/help` for the full command list (see [Telegram bot](#telegram-bot) below).
 
 You're done. Open `files.lab.example.com` from your phone, your laptop, your friend's tablet — anywhere with a browser — log in once, and the workshop is yours.
 
@@ -315,7 +306,7 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
 If you receive the message, both values are correct. Drop them into `.env` and restart the affected services:
 
 ```bash
-docker compose up -d tgbot watchtower
+docker compose up -d tgbot
 ```
 
 ### Interactive commands
@@ -343,11 +334,13 @@ A background watcher pushes a Telegram message when something interesting happen
 | `ALERT_MEM_PCT` | `90` | Warn when RAM usage exceeds this % |
 | `ALERT_LOAD` | `0` | Warn when 1-min load avg ≥ this integer (0 = off) |
 | `HEARTBEAT_HOURS` | `3` | Send an "all good" summary every N hours (0 = no heartbeat) |
-| `ALERT_SSH` | `1` | Alert on every successful SSH login to the host |
+| `ALERT_SSH` | `1` | Alert on every successful SSH login to the host (reads `/var/log/auth.log` via the host's `adm` group — see `AUTHLOG_GID` below) |
 | `ALERT_AUTHELIA` | `1` | Alert on every Authelia 1FA/2FA login event |
 | `ALERT_COOLDOWN` | `3600` | Seconds between repeats of the same alert |
 
 Set any to `0` to disable that watcher. Mute everything temporarily with `/mute 30`.
+
+**SSH alerts and `AUTHLOG_GID`.** On Debian/Ubuntu `/var/log/auth.log` is readable only by root and the `adm` group, so tgbot gets that group as a supplementary GID (default `4`). If `getent group adm` on your host shows a different number, set `AUTHLOG_GID` in `.env`. If `docker compose logs tgbot` says `auth.log not readable`, this is why.
 
 ---
 
@@ -377,7 +370,7 @@ Source: [`caddy/overlay/wetty-overlay.js`](./caddy/overlay/wetty-overlay.js), [`
 
 ## Daily operations
 
-**Updating containers.** Upstream images are pinned in `docker-compose.yml` — version tags where the project publishes them (Authelia, Glances, Watchtower, docker-socket-proxy), digests where it only ships `latest` (Filestash, and the wetty base image in `wetty/Dockerfile`). To update: check the project's release notes, bump the tag or digest (each pinned image has a comment saying how), then on the VPS:
+**Updating containers.** Upstream images are pinned in `docker-compose.yml` — version tags where the project publishes them (Authelia, Glances, docker-socket-proxy), digests where it only ships `latest` (Filestash, and the wetty base image in `wetty/Dockerfile`). To update: check the project's release notes, bump the tag or digest (each pinned image has a comment saying how), then on the VPS:
 
 ```bash
 cd mojalab-vps-stack
@@ -386,7 +379,7 @@ docker compose up -d --build
 docker image prune -f   # remove old images
 ```
 
-Note that Watchtower's daily digest only reports movement on the *pinned* tags, so new upstream releases won't show up there — checking release pages when you feel like updating is part of the deal.
+Nothing in the stack notifies you about new upstream releases — checking release pages when you feel like updating is part of the deal.
 
 **Updating the coding agents.** No rebuild needed — inside the terminal, run:
 
@@ -395,7 +388,7 @@ update-agents          # all of them: claude, codex, opencode, kimi, agy, kiro
 update-agents --list   # just show installed versions
 ```
 
-Updates land in `~/.local/bin` (persistent), so they survive container rebuilds and don't interrupt the running session. Watchtower does **not** cover the agents nor the locally-built images (zellij, caddy, wetty, tgbot): for Zellij itself, bump `ZELLIJ_VERSION` in `.env` and `docker compose up -d --build zellij`.
+Updates land in `~/.local/bin` (persistent), so they survive container rebuilds and don't interrupt the running session. For Zellij itself, bump `ZELLIJ_VERSION` in `.env` and `docker compose up -d --build zellij`.
 
 **Backing up.** This stack does *not* back up your data. The directories that matter are:
 - `authelia/` (your user DB and TOTP secrets)
@@ -506,7 +499,7 @@ Reload sshd. Optional but useful: pick a non-default port and update the firewal
 
 **Zellij web client says "Invalid token".** Generate a new one with `docker compose exec zellij zellij web --create-token`.
 
-**Watchtower doesn't send Telegram messages.** Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`. Test with `docker compose exec watchtower /watchtower --run-once --debug`. Make sure you've sent at least one message *to* the bot (not from it) before trying — bots can't initiate conversations.
+**The Telegram bot doesn't answer.** Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`, then look at `docker compose logs tgbot`. Make sure you've sent at least one message *to* the bot (not from it) before trying — bots can't initiate conversations.
 
 ---
 
@@ -523,7 +516,7 @@ This stack is designed for a **single-user homelab on a public VPS**. It defends
 - **SSH brute-force** on the host (if you install fail2ban yourself — see [Host hardening](#host-hardening))
 - **Login brute-force** on Authelia (built-in regulation: 3 fails → 10 min ban)
 - **Resource exhaustion** from a single misbehaving container (per-service `memory`/`cpu` limits, plus a `pids` limit on the Zellij workbench against accidental fork bombs from agent-run tests)
-- **Lateral movement from a compromised peripheral container to the Docker host** (Watchtower & Glances go through `dockerproxy` with `POST=0`, no direct socket mount)
+- **Lateral movement from a compromised peripheral container to the Docker host** (Glances & tgbot go through `dockerproxy` with `POST=0`, no direct socket mount)
 
 It does **not** defend against:
 
@@ -538,8 +531,8 @@ It does **not** defend against:
 2. **TOTP is the minimum.** Don't run this with password-only auth, even temporarily. The Zellij web client gives a remote shell on your VPS; without 2FA, you're one phishing away from total compromise.
 3. **Zellij has a second token gate.** Even if Authelia is bypassed somehow, Zellij requires its own token. Defense in depth.
 4. **Zellij user has passwordless sudo inside its container.** Combined with `/srv` mounted rw, anyone who gets past Authelia + Zellij token effectively has root in that container. The two gates above are what's holding the line.
-5. **Watchtower & Glances do not see the host Docker socket directly.** They go through `dockerproxy` (a read-only Docker API proxy) which denies all write/exec calls. If either container is compromised, it cannot start, stop, or exec into other containers.
-6. **Watchtower runs in monitor-only mode by default.** It does not auto-update anything. I strongly recommend you keep it that way: surprise updates on production-ish services are exactly the kind of 3 AM fun you don't want.
+5. **Glances & tgbot do not see the host Docker socket directly.** They go through `dockerproxy` (a read-only Docker API proxy) which denies all write/exec calls. If either container is compromised, it cannot start, stop, or exec into other containers.
+6. **Nothing auto-updates.** Images are pinned and only change when you bump them: surprise updates on production-ish services are exactly the kind of 3 AM fun you don't want.
 7. **Authelia secrets live in `authelia/secrets/`** which is gitignored. If you fork this repo and accidentally commit those files, treat them as compromised: regenerate everything, force-rotate sessions.
 8. **The host `/srv` directory is mounted into both Filestash and Zellij.** Anything writable there is editable from either browser interface. Be deliberate about what you put there.
 9. **`generate-password-hash.sh` passes the password as a CLI arg to a docker container.** It is briefly visible in the host's process list. Acceptable on a single-user VPS; if you don't trust other host users, run the script on your laptop and copy only the resulting hash up.
@@ -562,7 +555,7 @@ If you need any of those things, this isn't the right starting point. It's a wor
 
 Done:
 
-- [x] Docker socket proxy in front of Watchtower and Glances (reduce privilege)
+- [x] Docker socket proxy in front of Glances and tgbot (reduce privilege)
 - [x] Mobile-friendly web terminal (wetty + Zellij session sharing)
 - [x] Virtual keyboard overlay for wetty (sticky Ctrl/Alt, swipeable key sets, F-keys)
 - [x] Dev container in Zellij (Node 22, Python, Claude Code, persistent state)

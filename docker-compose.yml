@@ -12,8 +12,9 @@
 #   - Authelia         SSO + TOTP 2FA gate
 #   - Filestash        web file manager
 #   - Zellij           persistent web terminal
+#   - wetty            mobile web terminal (SSH into the Zellij container)
 #   - Glances          system metrics dashboard
-#   - Watchtower       monitor-only update notifier (Telegram)
+#   - tgbot            Telegram bot: status commands + proactive alerts
 #   - dockerproxy      least-privilege Docker socket proxy
 #
 # Read README.md before deploying. Run scripts/install.sh for guided setup.
@@ -51,7 +52,7 @@ services:
       authelia:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:2019/config/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:2019/config/"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -189,7 +190,7 @@ services:
       context: ./zellij
       dockerfile: Dockerfile
       args:
-        # Watchtower cannot watch locally-built images: bump this in .env
+        # Nothing notifies you about new Zellij releases: bump this in .env
         # now and then and rebuild (docker compose up -d --build zellij).
         ZELLIJ_VERSION: ${ZELLIJ_VERSION:-0.44.1}
     container_name: zellij
@@ -298,21 +299,19 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
-  # dockerproxy — minimal Docker API exposed read-only to Watchtower & Glances.
+  # dockerproxy — minimal Docker API exposed read-only to Glances & tgbot.
   # Replaces direct mount of /var/run/docker.sock into those services.
   # --------------------------------------------------------------------------
   dockerproxy:
-    # Pinned for reproducibility. NOTE: Watchtower's monitor-only digest check
-    # only sees movement on the *pinned* tag, so new releases of these pinned
-    # images won't show up in the daily digest — check upstream release pages
-    # when bumping versions here.
+    # Pinned for reproducibility. Nothing notifies you about new releases of
+    # the pinned images — check upstream release pages when bumping versions.
     image: tecnativa/docker-socket-proxy:v0.4.2
     container_name: dockerproxy
     restart: unless-stopped
     environment:
-      # Read-only access to the bits Watchtower & Glances actually need.
-      # Watchtower:  CONTAINERS, IMAGES, VERSION (and PING for liveness)
-      # Glances:     CONTAINERS, INFO, VERSION  (and PING for liveness)
+      # Read-only access to the bits Glances & tgbot actually need.
+      # Glances:  CONTAINERS, IMAGES, INFO, VERSION (and PING for liveness)
+      # tgbot:    CONTAINERS + LOGS (authelia log stream)
       - CONTAINERS=1
       - IMAGES=1
       - INFO=1
@@ -384,47 +383,6 @@ services:
         max-file: "3"
 
   # --------------------------------------------------------------------------
-  # Watchtower — the night watch. Monitor-only, daily Telegram digest.
-  # IMPORTANT: This config does NOT auto-update containers. By design.
-  # See the article for why: https://mojalab.com/browser-first-vps-for-coding-agents/
-  # --------------------------------------------------------------------------
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    container_name: watchtower
-    restart: unless-stopped
-    environment:
-      - TZ=${TZ:-Europe/Rome}
-      - DOCKER_HOST=tcp://dockerproxy:2375
-      - DOCKER_API_VERSION=1.45
-      - WATCHTOWER_MONITOR_ONLY=true
-      - WATCHTOWER_SCHEDULE=0 0 5 * * *           # 5:00 AM daily (in $TZ timezone)
-      - WATCHTOWER_NOTIFICATION_REPORT=true
-      # ${VAR-default} (no colon): install.sh writes WATCHTOWER_NOTIFICATIONS=''
-      # when Telegram is skipped, which disables notifications entirely instead
-      # of spamming errors with a malformed telegram://disabled@… URL.
-      - WATCHTOWER_NOTIFICATIONS=${WATCHTOWER_NOTIFICATIONS-shoutrrr}
-      - WATCHTOWER_NOTIFICATION_URL=telegram://${TELEGRAM_BOT_TOKEN}@telegram?chats=${TELEGRAM_CHAT_ID}
-      - WATCHTOWER_NOTIFICATION_TEMPLATE_FILE=/notification.tpl
-    volumes:
-      - ./watchtower/notification.tpl:/notification.tpl:ro
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"   # Don't monitor self
-    networks:
-      - lab
-    depends_on:
-      - dockerproxy
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.25'
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # --------------------------------------------------------------------------
   # tgbot — Telegram bot that answers /stats, /df, /uptime by querying Glances.
   # Single-user: only TELEGRAM_CHAT_ID is allowed to issue commands.
   # --------------------------------------------------------------------------
@@ -452,6 +410,13 @@ services:
       # Read-only host logs so the watcher can detect SSH logins.
       # Best-effort: only Debian/Ubuntu have /var/log/auth.log.
       - /var/log:/var/log:ro
+    # auth.log is 0640 syslog:adm on Debian/Ubuntu, and the bot runs as an
+    # unprivileged UID with all capabilities dropped — without the host's
+    # 'adm' GID as a supplementary group the SSH login watcher can't read it
+    # and silently disables itself. GID 4 is 'adm' on Debian/Ubuntu; check
+    # with `getent group adm` and override AUTHLOG_GID in .env if it differs.
+    group_add:
+      - "${AUTHLOG_GID:-4}"
     tmpfs:
       - /tmp/tgbot:size=4M,uid=1000,gid=1000
     networks:

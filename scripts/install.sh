@@ -142,15 +142,13 @@ fi
 ask "Zellij CPU limit"                     ZELLIJ_CPU_LIMIT "${ZELLIJ_CPU_LIMIT:-${CPU_COUNT:-2}}"
 [[ "$ZELLIJ_CPU_LIMIT" =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "Invalid CPU limit '${ZELLIJ_CPU_LIMIT}'. Use e.g. 2 or 1.5."
 
-if ask_yes_no "Set up Telegram notifications for Watchtower?" "y"; then
+if ask_yes_no "Set up the Telegram bot (status commands + alerts)?" "y"; then
     ask "Telegram bot token"  TELEGRAM_BOT_TOKEN "${TELEGRAM_BOT_TOKEN:-}"
     ask "Telegram chat ID"    TELEGRAM_CHAT_ID   "${TELEGRAM_CHAT_ID:-}"
-    WATCHTOWER_NOTIFICATIONS="shoutrrr"
 else
+    # tgbot idles on these sentinel values (see tgbot/bot.sh).
     TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-disabled}"
     TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-0}"
-    # Empty value disables Watchtower notifications (see docker-compose.yml).
-    WATCHTOWER_NOTIFICATIONS=""
 fi
 
 step "SMTP (for Authelia password resets and TOTP enrollment OTPs)"
@@ -245,7 +243,6 @@ TZ=$(_qv "$TZ")
 ACME_EMAIL=$(_qv "$ACME_EMAIL")
 TELEGRAM_BOT_TOKEN=$(_qv "$TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID=$(_qv "$TELEGRAM_CHAT_ID")
-WATCHTOWER_NOTIFICATIONS=$(_qv "$WATCHTOWER_NOTIFICATIONS")
 SMTP_HOST=$(_qv "${SMTP_HOST:-}")
 SMTP_PORT=$(_qv "${SMTP_PORT:-}")
 SMTP_USERNAME=$(_qv "${SMTP_USERNAME:-}")
@@ -258,7 +255,7 @@ EOF
 # that the Q&A doesn't ask about — rewriting the file must not drop them.
 for extra in ZELLIJ_VERSION LAB_STATE_DIR SMTP_SCHEME \
              ALERT_DISK_PCT ALERT_MEM_PCT ALERT_LOAD HEARTBEAT_HOURS \
-             ALERT_SSH ALERT_AUTHELIA ALERT_COOLDOWN; do
+             ALERT_SSH ALERT_AUTHELIA ALERT_COOLDOWN AUTHLOG_GID; do
     if [[ -n "${!extra:-}" ]]; then
         echo "${extra}=$(_qv "${!extra}")" >> "$ENV_FILE"
     fi
@@ -403,7 +400,9 @@ ok "$LAB_STATE prepared (owned by UID 1000)"
 # --- Bring up the stack -------------------------------------------------------
 step "Starting the stack"
 docker compose pull
-docker compose up -d --build
+# --remove-orphans: drops containers of services removed from the compose
+# file (e.g. watchtower on stacks installed before it was dropped).
+docker compose up -d --build --remove-orphans
 
 step "Waiting for services to become healthy"
 deadline=$((SECONDS + 300))
@@ -433,9 +432,15 @@ else
 fi
 
 # --- Telegram smoke test ------------------------------------------------------
-if [[ "$TELEGRAM_BOT_TOKEN" != "disabled" ]] && ask_yes_no "Send a Watchtower test notification to Telegram now?" "n"; then
-    step "Triggering Watchtower test run"
-    docker compose exec -T watchtower /watchtower --run-once --debug || warn "Watchtower run-once failed"
+if [[ "$TELEGRAM_BOT_TOKEN" != "disabled" ]] && ask_yes_no "Send a test message to Telegram now?" "n"; then
+    step "Sending Telegram test message"
+    if curl -fsS --max-time 10 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${BRAND_NAME}: install.sh test message from $(hostname)" >/dev/null; then
+        ok "Test message sent — check Telegram."
+    else
+        warn "Telegram test failed. Check the token and chat ID, and that you messaged the bot first."
+    fi
 fi
 
 # --- Done ---------------------------------------------------------------------
