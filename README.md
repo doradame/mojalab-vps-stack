@@ -225,7 +225,7 @@ The Zellij container is also a ready-to-use development environment — the work
 
 A `docker compose up -d --build zellij` rebuilds the image without losing any of the user state, because everything that matters lives in bind mounts under `${LAB_STATE_DIR}` and the named volumes for Zellij data.
 
-**Updating Zellij itself.** The binary is pinned via `ZELLIJ_VERSION` in `.env` (default `0.44.1`). Nothing will tell you about new Zellij releases — check the [releases page](https://github.com/zellij-org/zellij/releases) occasionally, bump the version, and rebuild with the command above.
+**Updating Zellij itself.** The binary is pinned via `ZELLIJ_VERSION` in `.env` (default `0.44.1`). Nothing will tell you about new Zellij releases — check the [releases page](https://github.com/zellij-org/zellij/releases) occasionally, bump the version, and rebuild with the command above. The default version's tarball is verified against SHA256 hashes baked into `zellij/Dockerfile`; when you bump `ZELLIJ_VERSION`, also set `ZELLIJ_SHA256` in `.env` (see `.env.example` for the one-liner), otherwise the build only prints a warning and skips verification.
 
 **Resource ceiling.** The container's limits come from `.env`: `ZELLIJ_MEM_LIMIT` (default `2G`) and `ZELLIJ_CPU_LIMIT` (default `2.0`). This is where agents compile and run tests, so size it to the host — the installer suggests host RAM minus ~3 GB (e.g. `5120M` and 4 CPUs on an 8 GB / 4-core VPS). Don't lowball the memory: hitting the limit OOM-kills the biggest process in the container, which is often `zellij` itself, taking every session down with it.
 
@@ -370,7 +370,7 @@ Source: [`caddy/overlay/wetty-overlay.js`](./caddy/overlay/wetty-overlay.js), [`
 
 ## Daily operations
 
-**Updating containers.** Upstream images are pinned in `docker-compose.yml` — version tags where the project publishes them (Authelia, Glances, docker-socket-proxy), digests where it only ships `latest` (Filestash, and the wetty base image in `wetty/Dockerfile`). To update: check the project's release notes, bump the tag or digest (each pinned image has a comment saying how), then on the VPS:
+**Updating containers.** Upstream images are pinned in `docker-compose.yml` — exact version tags where the project publishes them (Authelia, Glances, docker-socket-proxy, yq), digests where it only ships `latest` (Filestash, and the wetty base image in `wetty/Dockerfile`). The locally-built images pin their inputs too: Caddy and the `replace-response` module in `caddy/Dockerfile`, Zellij (version + checksum) and `uv` in `zellij/Dockerfile`. Not pinned, on purpose: the Debian/Alpine base images and apt packages (so rebuilds pick up security fixes), Node 22 from the NodeSource apt repo, and the coding-agent CLIs (always latest). To update: check the project's release notes, bump the tag or digest (each pinned image has a comment saying how), then on the VPS:
 
 ```bash
 cd mojalab-vps-stack

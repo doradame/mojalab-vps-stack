@@ -3,13 +3,15 @@
 # ============================================================================
 # Zellij with built-in web client, running as non-root user.
 #
-# To pin a specific binary release, set ZELLIJ_SHA256 at build time:
-#   docker compose build --build-arg ZELLIJ_SHA256=<hex>
-# Retrieve the expected hash from the release tarball for YOUR arch:
-#   https://github.com/zellij-org/zellij/releases/download/v${VER}/zellij-x86_64-unknown-linux-musl.tar.gz
-#   https://github.com/zellij-org/zellij/releases/download/v${VER}/zellij-aarch64-unknown-linux-musl.tar.gz
-# (compute with `sha256sum` on a trusted machine, or compare across releases).
-# If left empty, the build SKIPS verification (acceptable for a homelab, not for prod).
+# The Zellij tarball is verified against a SHA256:
+#   - default version (ZELLIJ_DEFAULT_VERSION below): hashes for both
+#     architectures are baked in, verification is automatic;
+#   - any other ZELLIJ_VERSION: set ZELLIJ_SHA256 (in .env, or with
+#     --build-arg) to the hash of the tarball for YOUR arch, e.g.
+#       curl -fsSL https://github.com/zellij-org/zellij/releases/download/v${VER}/zellij-x86_64-unknown-linux-musl.tar.gz | sha256sum
+#     If left empty the build SKIPS verification with a warning (acceptable
+#     for a homelab, not for prod).
+# When bumping the default version, update the three ZELLIJ_DEFAULT_* args.
 # ============================================================================
 
 # Debian 13 "trixie": bookworm went oldstable in Aug 2025 and its standard
@@ -19,6 +21,10 @@ FROM debian:trixie-slim
 
 ARG ZELLIJ_VERSION=0.44.1
 ARG ZELLIJ_SHA256=""
+# Known-good hashes for the default version (release assets on GitHub).
+ARG ZELLIJ_DEFAULT_VERSION=0.44.1
+ARG ZELLIJ_DEFAULT_SHA256_X86_64=669825021d529fca5d939888263c9d2a90762145191fa07581a15250e8af2b49
+ARG ZELLIJ_DEFAULT_SHA256_AARCH64=6f028bb569d29be968c961249c5f80d5336ad4ad4b3cd79af8e32afab57b0948
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget gnupg bash bash-completion sudo procps xz-utils \
@@ -35,9 +41,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -s "$(command -v fdfind)" /usr/local/bin/fd
 
 # uv — the Python package/venv manager modern agents expect. System-wide so
-# it survives ~/.local wipes; self-updates are shadowed into ~/.local/bin.
-RUN curl -LsSf https://astral.sh/uv/install.sh \
-    | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+# it survives ~/.local wipes. Copied from the official image at a pinned
+# version instead of piping the install script into sh. To update: bump the
+# tag (https://github.com/astral-sh/uv/releases).
+COPY --from=ghcr.io/astral-sh/uv:0.13.9 /uv /uvx /usr/local/bin/
 
 # Node.js 22 LTS from NodeSource (Node 20 went EOL in April 2026; modern
 # agent CLIs — Codex included — expect >= 22).
@@ -69,16 +76,20 @@ RUN chmod +x /usr/local/bin/git-ssh-key
 # tarball for the target architecture).
 RUN set -eux; \
     case "$(uname -m)" in \
-        x86_64|amd64)       zellijArch="x86_64-unknown-linux-musl" ;; \
-        aarch64|arm64)      zellijArch="aarch64-unknown-linux-musl" ;; \
+        x86_64|amd64)       zellijArch="x86_64-unknown-linux-musl";  defaultSha="${ZELLIJ_DEFAULT_SHA256_X86_64}" ;; \
+        aarch64|arm64)      zellijArch="aarch64-unknown-linux-musl"; defaultSha="${ZELLIJ_DEFAULT_SHA256_AARCH64}" ;; \
         *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;; \
     esac; \
+    expectedSha="${ZELLIJ_SHA256}"; \
+    if [ -z "${expectedSha}" ] && [ "${ZELLIJ_VERSION}" = "${ZELLIJ_DEFAULT_VERSION}" ]; then \
+        expectedSha="${defaultSha}"; \
+    fi; \
     curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-${zellijArch}.tar.gz" \
         -o /tmp/zellij.tar.gz; \
-    if [ -n "${ZELLIJ_SHA256}" ]; then \
-        echo "${ZELLIJ_SHA256}  /tmp/zellij.tar.gz" | sha256sum -c -; \
+    if [ -n "${expectedSha}" ]; then \
+        echo "${expectedSha}  /tmp/zellij.tar.gz" | sha256sum -c -; \
     else \
-        echo "WARNING: ZELLIJ_SHA256 not set, skipping checksum verification" >&2; \
+        echo "WARNING: no checksum known for zellij ${ZELLIJ_VERSION} and ZELLIJ_SHA256 not set — skipping verification" >&2; \
     fi; \
     tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin/; \
     chmod +x /usr/local/bin/zellij; \

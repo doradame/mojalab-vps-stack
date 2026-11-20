@@ -72,7 +72,9 @@ services:
   # Authelia — the lock. Single sign-on with TOTP second factor.
   # --------------------------------------------------------------------------
   authelia:
-    image: authelia/authelia:4
+    # Exact version, not the floating '4' tag. To update: check
+    # https://github.com/authelia/authelia/releases and bump.
+    image: authelia/authelia:4.39.28
     container_name: authelia
     restart: unless-stopped
     # tty:true makes the Docker logs API emit a plain (non-multiplexed) stream
@@ -119,7 +121,7 @@ services:
   # lets us version only the harmless UI bits. Idempotent on every start.
   # yq image (alpine) because the official jq image is FROM scratch — no shell.
   filestash-init:
-    image: mikefarah/yq:4
+    image: mikefarah/yq:4.54.3
     container_name: filestash-init
     user: "0"
     entrypoint: /bin/sh
@@ -193,6 +195,10 @@ services:
         # Nothing notifies you about new Zellij releases: bump this in .env
         # now and then and rebuild (docker compose up -d --build zellij).
         ZELLIJ_VERSION: ${ZELLIJ_VERSION:-0.44.1}
+        # Checksums for the default version are baked into zellij/Dockerfile.
+        # For any other version set ZELLIJ_SHA256 in .env (see .env.example),
+        # otherwise the download is NOT verified.
+        ZELLIJ_SHA256: ${ZELLIJ_SHA256:-}
     container_name: zellij
     restart: unless-stopped
     environment:

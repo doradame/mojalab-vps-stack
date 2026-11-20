@@ -253,7 +253,7 @@ ZELLIJ_CPU_LIMIT=$(_qv "${ZELLIJ_CPU_LIMIT:-2.0}")
 EOF
 # Preserve optional overrides carried over from a previous .env (sourced above)
 # that the Q&A doesn't ask about — rewriting the file must not drop them.
-for extra in ZELLIJ_VERSION LAB_STATE_DIR SMTP_SCHEME \
+for extra in ZELLIJ_VERSION ZELLIJ_SHA256 LAB_STATE_DIR SMTP_SCHEME \
              ALERT_DISK_PCT ALERT_MEM_PCT ALERT_LOAD HEARTBEAT_HOURS \
              ALERT_SSH ALERT_AUTHELIA ALERT_COOLDOWN AUTHLOG_GID; do
     if [[ -n "${!extra:-}" ]]; then
