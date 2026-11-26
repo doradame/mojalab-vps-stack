@@ -201,6 +201,11 @@ services:
         ZELLIJ_SHA256: ${ZELLIJ_SHA256:-}
     container_name: zellij
     restart: unless-stopped
+    # tini as PID 1. Without it PID 1 is 'zellij web', which never reaps
+    # orphaned processes: every orphan an agent or test run leaves behind
+    # becomes a permanent zombie holding a PID, until the 'pids' limit below
+    # is exhausted and nothing in the container can fork any more.
+    init: true
     environment:
       - TZ=${TZ:-Europe/Rome}
       - LAB_BRAND=${BRAND_NAME:-mojalab}
