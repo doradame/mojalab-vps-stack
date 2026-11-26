@@ -1,0 +1,82 @@
+# ============================================================================
+# fail2ban jails for the Caddy access log — mojalab-vps-stack
+# ============================================================================
+# Install on the host (Debian/Ubuntu, fail2ban >= 1.0, nftables):
+#   sudo cp fail2ban/filter.d/caddy-*.conf  /etc/fail2ban/filter.d/
+#   sudo cp fail2ban/jail.d/mojalab-caddy.local /etc/fail2ban/jail.d/
+#   sudo cp fail2ban/fail2ban.d/mojalab.local  /etc/fail2ban/fail2ban.d/
+#   sudo fail2ban-client reload
+#
+# logpath below assumes the repo is checked out at /home/ubuntu/mojalab-vps-stack:
+# adjust the three 'logpath' lines if yours lives elsewhere. Create the log
+# file before the first reload (fail2ban refuses to start a jail without it):
+#   sudo touch caddy/logs/access.log
+#
+# Why a custom banaction: Caddy is a Docker container with published ports.
+# Its traffic is DNAT-ed and goes through the FORWARD path, so the stock
+# nftables action (hook 'input') would never see it. We hook 'prerouting'
+# at priority -150, i.e. BEFORE Docker's DNAT (-100), and drop every port
+# and protocol (HTTP/3 is UDP) from a banned address.
+#
+# Useful commands:
+#   sudo fail2ban-client status caddy-scanner
+#   sudo fail2ban-client set caddy-scanner unbanip 1.2.3.4
+#   sudo nft list chain inet f2b-table f2b-web
+# ============================================================================
+
+[DEFAULT]
+# Never ban the host itself or the Docker networks. To also whitelist your
+# own fixed public IPs, don't edit this tracked file: create
+# /etc/fail2ban/jail.d/zz-ignoreip.local with a [DEFAULT] section and the
+# FULL list (it is read after this file and replaces this value).
+ignoreip = 127.0.0.1/8 ::1 172.16.0.0/12
+
+[caddy-scanner]
+enabled   = true
+backend   = polling
+logpath   = /home/ubuntu/mojalab-vps-stack/caddy/logs/access.log
+filter    = caddy-scanner
+banaction = nftables[type=allports, chain_hook=prerouting, chain_priority=-150, blocktype=drop]
+# chain/protocol must be set at jail level: jail.conf's action_ passes them
+# to the action and would override values given inside banaction[...].
+chain     = f2b-web
+protocol  = tcp,udp
+maxretry  = 2
+findtime  = 1h
+bantime   = 1d
+bantime.increment = true
+bantime.maxtime   = 4w
+
+[caddy-catchall]
+enabled   = true
+backend   = polling
+logpath   = /home/ubuntu/mojalab-vps-stack/caddy/logs/access.log
+filter    = caddy-catchall
+banaction = nftables[type=allports, chain_hook=prerouting, chain_priority=-150, blocktype=drop]
+# chain/protocol must be set at jail level: jail.conf's action_ passes them
+# to the action and would override values given inside banaction[...].
+chain     = f2b-web
+protocol  = tcp,udp
+maxretry  = 3
+findtime  = 1h
+bantime   = 1d
+bantime.increment = true
+bantime.maxtime   = 4w
+
+[caddy-noauth]
+# Safety net for scanners using paths the list above doesn't know. A real
+# user produces 1-2 of these per expired session; scanners hundreds.
+enabled   = true
+backend   = polling
+logpath   = /home/ubuntu/mojalab-vps-stack/caddy/logs/access.log
+filter    = caddy-noauth
+banaction = nftables[type=allports, chain_hook=prerouting, chain_priority=-150, blocktype=drop]
+# chain/protocol must be set at jail level: jail.conf's action_ passes them
+# to the action and would override values given inside banaction[...].
+chain     = f2b-web
+protocol  = tcp,udp
+maxretry  = 40
+findtime  = 10m
+bantime   = 1h
+bantime.increment = true
+bantime.maxtime   = 1w

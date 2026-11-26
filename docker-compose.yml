@@ -41,6 +41,8 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/home:/srv/home:ro
       - ./caddy/overlay:/srv/wetty-overlay:ro
+      # JSON access log on the host, read by fail2ban (see fail2ban/).
+      - ./caddy/logs:/var/log/caddy
       - caddy_data:/data
       - caddy_config:/config
     environment:

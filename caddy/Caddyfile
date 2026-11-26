@@ -46,6 +46,19 @@
     }
 }
 
+# JSON access log, read by fail2ban on the host (see fail2ban/). One shared
+# file for every site; Caddy rotates it itself. Cookie/Authorization headers
+# are redacted by Caddy by default.
+(access_log) {
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 50MiB
+            roll_keep 5
+        }
+        format json
+    }
+}
+
 (authelia_forward) {
     forward_auth authelia:9091 {
         uri /api/authz/forward-auth
@@ -58,6 +71,7 @@
 # ----------------------------------------------------------------------------
 auth.{$DOMAIN} {
     import security_headers
+    import access_log
     reverse_proxy authelia:9091
 }
 
@@ -66,6 +80,7 @@ auth.{$DOMAIN} {
 # ----------------------------------------------------------------------------
 files.{$DOMAIN} {
     import security_headers
+    import access_log
     import authelia_forward
     reverse_proxy filestash:8334 {
         header_up X-Forwarded-Proto https
@@ -80,6 +95,7 @@ files.{$DOMAIN} {
 # ----------------------------------------------------------------------------
 term.{$DOMAIN} {
     import security_headers
+    import access_log
     import authelia_forward
     reverse_proxy zellij:8082
 }
@@ -93,6 +109,7 @@ term.{$DOMAIN} {
 # ----------------------------------------------------------------------------
 mterm.{$DOMAIN} {
     import security_headers
+    import access_log
     import authelia_forward
 
     # Serve the overlay assets locally before they ever reach wetty.
@@ -147,6 +164,7 @@ mterm.{$DOMAIN} {
 # ----------------------------------------------------------------------------
 stats.{$DOMAIN} {
     import security_headers
+    import access_log
     import authelia_forward
     reverse_proxy glances:61208
 }
@@ -156,6 +174,7 @@ stats.{$DOMAIN} {
 # ----------------------------------------------------------------------------
 home.{$DOMAIN} {
     import security_headers
+    import access_log
     import authelia_forward
     root * /srv/home
     file_server
@@ -165,5 +184,14 @@ home.{$DOMAIN} {
 # Catch-all: 404 to make it boring for scanners.
 # ----------------------------------------------------------------------------
 :80, :443 {
+    # Named logger so fail2ban can tell catch-all hits (requests by bare IP or
+    # unknown Host — never a legitimate user) from the real sites.
+    log catchall {
+        output file /var/log/caddy/access.log {
+            roll_size 50MiB
+            roll_keep 5
+        }
+        format json
+    }
     respond "Not found" 404
 }

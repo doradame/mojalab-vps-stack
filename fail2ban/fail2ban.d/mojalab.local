@@ -1,0 +1,4 @@
+# Keep ban history 30 days so bantime.increment can escalate repeat
+# offenders (default purge is 1 day, which would forget them).
+[Definition]
+dbpurgeage = 30d
